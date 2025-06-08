@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Модуль календаря
+Task Manager - Менеджер календаря
 """
 
 import tkinter as tk
 from tkinter import ttk
 import calendar
 from datetime import datetime, date, timedelta
-from typing import Dict, List, Callable, Optional
+from typing import List, Callable, Optional
+from modules.task_models import Task
 
 
 class CalendarWidget:
@@ -27,7 +28,6 @@ class CalendarWidget:
 
     def setup_calendar(self):
         """Создание интерфейса календаря"""
-        # Основной фрейм
         self.main_frame = ttk.Frame(self.parent)
         self.main_frame.pack(fill='both', expand=True, padx=10, pady=10)
 
@@ -36,23 +36,18 @@ class CalendarWidget:
         header_frame.pack(fill='x', pady=(0, 10))
 
         # Кнопки навигации
-        ttk.Button(header_frame, text="<<",
-                   command=self.prev_year, width=3).pack(side='left')
-        ttk.Button(header_frame, text="<",
-                   command=self.prev_month, width=3).pack(side='left', padx=(5, 0))
+        ttk.Button(header_frame, text="<<", command=self.prev_year, width=3).pack(side='left')
+        ttk.Button(header_frame, text="<", command=self.prev_month, width=3).pack(side='left', padx=(5, 0))
 
         # Текущий месяц и год
         self.month_year_label = ttk.Label(header_frame, font=('Arial', 14, 'bold'))
         self.month_year_label.pack(side='left', expand=True)
 
-        ttk.Button(header_frame, text=">",
-                   command=self.next_month, width=3).pack(side='right', padx=(0, 5))
-        ttk.Button(header_frame, text=">>",
-                   command=self.next_year, width=3).pack(side='right')
+        ttk.Button(header_frame, text=">", command=self.next_month, width=3).pack(side='right', padx=(0, 5))
+        ttk.Button(header_frame, text=">>", command=self.next_year, width=3).pack(side='right')
 
         # Кнопка "Сегодня"
-        ttk.Button(header_frame, text="Сегодня",
-                   command=self.go_to_today).pack(side='right', padx=(0, 10))
+        ttk.Button(header_frame, text="Сегодня", command=self.go_to_today).pack(side='right', padx=(0, 10))
 
         # Сетка календаря
         self.calendar_frame = ttk.Frame(self.main_frame)
@@ -61,15 +56,13 @@ class CalendarWidget:
         # Заголовки дней недели
         days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
         for i, day in enumerate(days):
-            label = ttk.Label(self.calendar_frame, text=day,
-                              font=('Arial', 10, 'bold'), anchor='center')
+            label = ttk.Label(self.calendar_frame, text=day, font=('Arial', 10, 'bold'), anchor='center')
             label.grid(row=0, column=i, sticky='ew', padx=1, pady=1)
 
         # Настройка пропорций колонок
         for i in range(7):
             self.calendar_frame.grid_columnconfigure(i, weight=1)
 
-        # Массив для хранения кнопок дней
         self.day_buttons = {}
 
     def prev_month(self):
@@ -131,11 +124,8 @@ class CalendarWidget:
                     continue
 
                 day_date = date(self.current_date.year, self.current_date.month, day)
-
-                # Определение стиля кнопки
                 style_config = self.get_day_style(day_date)
 
-                # Создание кнопки дня
                 day_btn = tk.Button(
                     self.calendar_frame,
                     text=str(day),
@@ -150,8 +140,6 @@ class CalendarWidget:
                     if tasks:
                         task_count = len(tasks)
                         completed_count = sum(1 for t in tasks if t.is_completed)
-
-                        # Добавление индикатора количества задач
                         info_text = f"{day}\n({completed_count}/{task_count})"
                         day_btn.config(text=info_text, font=('Arial', 8))
 
@@ -161,7 +149,7 @@ class CalendarWidget:
         for i in range(len(cal) + 1):
             self.calendar_frame.grid_rowconfigure(i, weight=1)
 
-    def get_day_style(self, day_date: date) -> Dict:
+    def get_day_style(self, day_date: date) -> dict:
         """Получение стиля для дня календаря"""
         today = date.today()
 
@@ -173,32 +161,14 @@ class CalendarWidget:
             'height': 3
         }
 
-        # Сегодняшний день
         if day_date == today:
-            style.update({
-                'bg': '#2196F3',
-                'fg': 'white',
-                'font': ('Arial', 10, 'bold')
-            })
-        # Выбранная дата
+            style.update({'bg': '#2196F3', 'fg': 'white', 'font': ('Arial', 10, 'bold')})
         elif day_date == self.selected_date:
-            style.update({
-                'bg': '#FFC107',
-                'fg': 'black',
-                'font': ('Arial', 10, 'bold')
-            })
-        # Выходные дни
+            style.update({'bg': '#FFC107', 'fg': 'black', 'font': ('Arial', 10, 'bold')})
         elif day_date.weekday() >= 5:
-            style.update({
-                'bg': '#FFEBEE',
-                'fg': '#D32F2F'
-            })
-        # Обычные дни
+            style.update({'bg': '#FFEBEE', 'fg': '#D32F2F'})
         else:
-            style.update({
-                'bg': 'white',
-                'fg': 'black'
-            })
+            style.update({'bg': 'white', 'fg': 'black'})
 
         return style
 
@@ -221,13 +191,12 @@ class TaskCalendarWindow:
 
         self.window = tk.Toplevel(parent)
         self.window.title("Календарь задач")
-        self.window.geometry("800x600")
+        self.window.geometry("900x600")
 
         self.setup_ui()
 
     def setup_ui(self):
         """Создание интерфейса окна календаря"""
-        # Основной контейнер
         main_container = ttk.PanedWindow(self.window, orient='horizontal')
         main_container.pack(fill='both', expand=True, padx=5, pady=5)
 
@@ -254,8 +223,11 @@ class TaskCalendarWindow:
         self.selected_date_label.pack(pady=5)
 
         # Список задач
+        list_frame = ttk.Frame(tasks_frame)
+        list_frame.pack(fill='both', expand=True, padx=5, pady=5)
+
         self.tasks_tree = ttk.Treeview(
-            tasks_frame,
+            list_frame,
             columns=('title', 'priority', 'status'),
             show='headings',
             height=15
@@ -269,37 +241,31 @@ class TaskCalendarWindow:
         self.tasks_tree.column('priority', width=80)
         self.tasks_tree.column('status', width=80)
 
-        # Скроллбар для списка задач
-        tasks_scrollbar = ttk.Scrollbar(tasks_frame, orient='vertical',
-                                        command=self.tasks_tree.yview)
+        tasks_scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.tasks_tree.yview)
         self.tasks_tree.configure(yscrollcommand=tasks_scrollbar.set)
 
-        self.tasks_tree.pack(side='left', fill='both', expand=True, padx=(5, 0), pady=5)
-        tasks_scrollbar.pack(side='right', fill='y', pady=5)
+        self.tasks_tree.pack(side='left', fill='both', expand=True)
+        tasks_scrollbar.pack(side='right', fill='y')
 
         # Кнопки управления
         button_frame = ttk.Frame(tasks_frame)
         button_frame.pack(fill='x', padx=5, pady=5)
 
-        ttk.Button(button_frame, text="Перейти к дню",
-                   command=self.go_to_selected_day).pack(side='left', padx=(0, 5))
-        ttk.Button(button_frame, text="Новая задача",
-                   command=self.create_task_for_date).pack(side='left', padx=(0, 5))
-        ttk.Button(button_frame, text="Обновить",
-                   command=self.refresh_tasks).pack(side='left')
+        ttk.Button(button_frame, text="Перейти к дню", command=self.go_to_selected_day).pack(side='left', padx=(0, 5))
+        ttk.Button(button_frame, text="Новая задача", command=self.create_task_for_date).pack(side='left', padx=(0, 5))
+        ttk.Button(button_frame, text="Обновить", command=self.refresh_tasks).pack(side='left')
 
-        # Привязка двойного клика
         self.tasks_tree.bind('<Double-1>', self.on_task_double_click)
 
         # Инициализация с текущей датой
         self.on_date_selected(date.today())
 
-    def get_tasks_for_date(self, target_date: date) -> List:
+    def get_tasks_for_date(self, target_date: date) -> List[Task]:
         """Получение задач для указанной даты"""
         try:
             date_str = target_date.isoformat()
-            tasks = self.db.get_tasks(date_str)
-            return [t for t in tasks if t.date_scheduled == date_str]
+            tasks = self.db.get_tasks(date_str, include_backlog=False)
+            return tasks
         except:
             return []
 
@@ -308,56 +274,56 @@ class TaskCalendarWindow:
         self.selected_date = selected_date
 
         # Обновление заголовка
-        date_str = selected_date.strftime("%d %B %Y")
         weekday_names = [
             'Понедельник', 'Вторник', 'Среда', 'Четверг',
             'Пятница', 'Суббота', 'Воскресенье'
         ]
         weekday = weekday_names[selected_date.weekday()]
-        self.selected_date_label.config(text=f"{weekday}, {date_str}")
 
-        # Обновление списка задач
+        month_names = [
+            'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+            'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+        ]
+        month_name = month_names[selected_date.month - 1]
+        formatted_date = f"{selected_date.day} {month_name} {selected_date.year}"
+
+        self.selected_date_label.config(text=f"{weekday}, {formatted_date}")
         self.refresh_tasks()
 
     def refresh_tasks(self):
         """Обновление списка задач"""
-        # Очистка текущего списка
         for item in self.tasks_tree.get_children():
             self.tasks_tree.delete(item)
 
-        # Получение задач для выбранной даты
         tasks = self.get_tasks_for_date(self.selected_date)
 
-        # Заполнение списка
         for task in tasks:
             status = "Выполнено" if task.is_completed else "В работе"
-            priority_color = self.get_priority_display(task.priority)
+
+            title = task.title
+            if task.is_planned:
+                title = f"📅 {title}"
 
             item = self.tasks_tree.insert('', 'end', values=(
-                task.title,
+                title,
                 f"{task.priority}/10",
                 status
             ))
 
-            # Цветовое выделение выполненных задач
             if task.is_completed:
-                self.tasks_tree.set(item, 'title', f"✓ {task.title}")
-
-    def get_priority_display(self, priority: int) -> str:
-        """Получение отображения приоритета"""
-        return f"{priority}/10"
+                self.tasks_tree.set(item, 'title', f"✓ {title}")
 
     def go_to_selected_day(self):
         """Переход к выбранному дню в основном интерфейсе"""
         if self.task_manager:
             self.task_manager.current_date = self.selected_date
             self.task_manager.refresh_task_list()
+            self.task_manager.update_datetime()
             self.window.destroy()
 
     def create_task_for_date(self):
         """Создание новой задачи для выбранной даты"""
         if self.task_manager:
-            # Создание новой задачи с установленной датой
             new_task = self.task_manager.create_new_task_for_date(self.selected_date)
             self.refresh_tasks()
             self.calendar.update_calendar()
@@ -369,19 +335,24 @@ class TaskCalendarWindow:
             return
 
         item = selection[0]
-        task_title = self.tasks_tree.item(item)['values'][0]
+        task_values = self.tasks_tree.item(item)['values']
+        if not task_values:
+            return
 
-        # Поиск задачи по названию
+        task_title = task_values[0]
+        clean_title = task_title.replace("📅 ", "").replace("✓ ", "")
+
         tasks = self.get_tasks_for_date(self.selected_date)
         for task in tasks:
-            if task.title in task_title:
+            if task.title == clean_title:
                 if self.task_manager:
+                    self.task_manager.current_date = self.selected_date
+                    self.task_manager.refresh_task_list()
                     self.task_manager.select_task(task)
                     self.window.destroy()
                 break
 
 
-# Интеграция с основным классом TaskManager
 class CalendarMixin:
     """Миксин для добавления функциональности календаря"""
 
@@ -391,25 +362,11 @@ class CalendarMixin:
 
     def create_new_task_for_date(self, target_date: date):
         """Создание новой задачи для указанной даты"""
-        from main import Task  # Импорт класса Task
+        from .task_models import Task
 
         new_task = Task()
         new_task.date_scheduled = target_date.isoformat()
         new_task.title = f"Новая задача на {target_date.strftime('%d.%m.%Y')}"
 
-        # Сохранение задачи
         new_task.id = self.db.save_task(new_task)
-
         return new_task
-
-
-# Пример использования:
-"""
-Для интеграции с основным классом TaskManager:
-
-class TaskManager(CalendarMixin):
-    # ... существующий код ...
-    pass
-
-# Теперь метод show_calendar() будет работать корректно
-"""
