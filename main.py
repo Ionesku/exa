@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Task Manager - Система управления задачами
@@ -11,42 +12,17 @@ import json
 from datetime import datetime, timedelta, date
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict, Any, Callable
+from drag_drop_module import DragDropManager, TaskDragDropMixin
+from calendar_module import CalendarMixin
 import os
 import calendar
 
-# Попытка импорта дополнительных модулей (если они существуют)
-try:
-    from drag_drop_module import DragDropManager, TaskDragDropMixin
-
-    DRAG_DROP_AVAILABLE = True
-except ImportError:
-    DRAG_DROP_AVAILABLE = False
-
-
-    # Создаем заглушку
-    class TaskDragDropMixin:
-        def init_drag_drop(self): pass
-
-        def make_task_draggable(self, widget, task): pass
-
-try:
-    from calendar_module import CalendarMixin
-
-    CALENDAR_MODULE_AVAILABLE = True
-except ImportError:
-    CALENDAR_MODULE_AVAILABLE = False
-
-
-    # Создаем заглушку
-    class CalendarMixin:
-        def show_calendar(self): pass
-
 # Цветовая схема Material Design (пастельные тона)
 COLORS = {
-    'quadrant_1': '#E8F5E8',  # Светло-зеленый (Важно и Срочно)
-    'quadrant_2': '#E3F2FD',  # Светло-голубой (Важно, не срочно)
-    'quadrant_3': '#FFF3E0',  # Светло-оранжевый (Срочно, не важно)
-    'quadrant_4': '#F3E5F5',  # Светло-фиолетовый (Не важно, не срочно)
+    'quadrant_1': '#E8F5E8',  # Светло-зеленый
+    'quadrant_2': '#E3F2FD',  # Светло-голубой
+    'quadrant_3': '#FFF3E0',  # Светло-оранжевый
+    'quadrant_4': '#F3E5F5',  # Светло-фиолетовый
     'inactive': '#F5F5F5',  # Серый для неактивных
     'primary': '#2196F3',  # Основной синий
     'accent': '#FF5722',  # Акцентный оранжевый
@@ -278,8 +254,7 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
         self.setup_ui()
 
         # Инициализация дополнительных модулей
-        if DRAG_DROP_AVAILABLE:
-            self.init_drag_drop()
+        self.init_drag_drop()
 
         # Загрузка данных
         self.load_data()
@@ -359,7 +334,7 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
 
     def setup_quadrants(self, parent):
         """Создание области квадрантов"""
-        quadrant_frame = ttk.LabelFrame(parent, text="Матрица Эйзенхауэра")
+        quadrant_frame = ttk.LabelFrame(parent, text="Планирование")
         quadrant_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
 
         # Создаем сетку 2x2
@@ -385,10 +360,10 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
         grid_frame.pack(fill='both', expand=True)
 
         quadrant_configs = [
-            (0, 0, 1, "Важно и Срочно", COLORS['quadrant_1']),
-            (0, 1, 2, "Важно, не срочно", COLORS['quadrant_2']),
-            (1, 0, 3, "Срочно, не важно", COLORS['quadrant_3']),
-            (1, 1, 4, "Не важно, не срочно", COLORS['quadrant_4'])
+            (0, 0, 1, "1", COLORS['quadrant_1']),
+            (0, 1, 2, "2", COLORS['quadrant_2']),
+            (1, 0, 3, "3", COLORS['quadrant_3']),
+            (1, 1, 4, "4", COLORS['quadrant_4'])
         ]
 
         for row, col, quad_id, title, color in quadrant_configs:
@@ -580,8 +555,6 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
 
     def setup_drop_zone(self, widget, zone_id):
         """Настройка зоны для перетаскивания (встроенная реализация)"""
-        if DRAG_DROP_AVAILABLE:
-            return  # Используем продвинутый модуль
 
         # Простая встроенная реализация drag&drop
         def on_drag_enter(event):
@@ -816,11 +789,7 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
         priority_label.pack(side='right', padx=(5, 0))
 
         # Настройка drag&drop для задачи
-        if DRAG_DROP_AVAILABLE:
-            self.make_task_draggable(task_btn, task)
-        else:
-            # Простая встроенная реализация
-            task_btn.bind("<Button-1>", lambda e: self.simple_start_drag(e, task))
+        self.make_task_draggable(task_btn, task)
 
         # Tooltip с информацией о задаче
         self.create_tooltip(task_btn, self.get_task_tooltip(task))
@@ -930,11 +899,7 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
             self.create_tooltip(task_circle, self.get_task_tooltip(task))
 
             # Настройка перетаскивания
-            if DRAG_DROP_AVAILABLE:
-                self.make_task_draggable(task_circle, task)
-            else:
-                task_circle.bind("<Button-1>", lambda e, t=task: self.simple_start_drag(e, t))
-
+            self.make_task_draggable(task_circle, task)
             task_circle.bind("<Double-Button-1>", lambda e, t=task: self.select_task(t))
 
     def add_task_to_quadrant(self, task: Task, quadrant: int):
@@ -959,10 +924,7 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
         self.create_tooltip(task_circle, self.get_task_tooltip(task))
 
         # Настройка перетаскивания
-        if DRAG_DROP_AVAILABLE:
-            self.make_task_draggable(task_circle, task)
-        else:
-            task_circle.bind("<Button-1>", lambda e: self.simple_start_drag(e, task))
+        self.make_task_draggable(task_circle, task)
 
         task_circle.bind("<Double-Button-1>", lambda e: self.select_task(task))
 
@@ -1033,12 +995,7 @@ class TaskManager(TaskDragDropMixin, CalendarMixin):
 
     def show_calendar(self):
         """Показать календарь"""
-        if CALENDAR_MODULE_AVAILABLE:
-            # Используем продвинутый модуль календаря
-            super().show_calendar()
-        else:
-            # Встроенная простая реализация календаря
-            self.show_simple_calendar()
+        super().show_calendar()
 
     def show_simple_calendar(self):
         """Простая встроенная реализация календаря"""

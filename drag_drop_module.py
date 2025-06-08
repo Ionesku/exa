@@ -49,8 +49,9 @@ class DragDropManager:
                 self.drop_zones[drop_zone]['callback'](self.dragged_data, drop_zone)
 
             self.cleanup_drag()
-            widget.unbind('<B1-Motion>')
-            widget.unbind('<ButtonRelease-1>')
+            if widget.winfo_exists():
+                widget.unbind('<B1-Motion>')
+                widget.unbind('<ButtonRelease-1>')
 
         widget.bind('<Button-1>', on_drag_start)
 
