@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Менеджер календаря
+Task Manager - Менеджер календаря (исправленная версия)
 """
 
 import tkinter as tk
@@ -8,11 +8,11 @@ from tkinter import ttk
 import calendar
 from datetime import datetime, date, timedelta
 from typing import List, Callable, Optional
-from modules.task_models import Task
+from .task_models import Task
 
 
 class CalendarWidget:
-    """Виджет календаря для выбора дат и навигации"""
+    """Виджет календаря с оптимизированной перерисовкой"""
 
     def __init__(self, parent: tk.Widget, on_date_select: Callable[[date], None] = None,
                  get_tasks_for_date: Callable[[date], List] = None):
@@ -22,6 +22,7 @@ class CalendarWidget:
 
         self.current_date = date.today()
         self.selected_date = date.today()
+        self.last_drawn_month = None  # Для оптимизации перерисовки
 
         self.setup_calendar()
         self.update_calendar()
@@ -100,7 +101,19 @@ class CalendarWidget:
             self.on_date_select(self.selected_date)
 
     def update_calendar(self):
-        """Обновление отображения календаря"""
+        """Оптимизированное обновление календаря"""
+        current_month_key = (self.current_date.year, self.current_date.month)
+
+        # Проверяем, нужно ли перерисовывать весь календарь
+        if self.last_drawn_month != current_month_key:
+            self.redraw_full_calendar()
+            self.last_drawn_month = current_month_key
+        else:
+            # Только обновляем стили существующих кнопок
+            self.update_day_styles()
+
+    def redraw_full_calendar(self):
+        """Полная перерисовка календаря"""
         # Обновление заголовка
         month_names = [
             'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -124,24 +137,16 @@ class CalendarWidget:
                     continue
 
                 day_date = date(self.current_date.year, self.current_date.month, day)
-                style_config = self.get_day_style(day_date)
 
                 day_btn = tk.Button(
                     self.calendar_frame,
                     text=str(day),
                     command=lambda d=day_date: self.select_date(d),
-                    **style_config
+                    width=8,
+                    height=3,
+                    font=('Arial', 10)
                 )
                 day_btn.grid(row=week_num, column=day_num, sticky='nsew', padx=1, pady=1)
-
-                # Добавление информации о задачах
-                if self.get_tasks_for_date:
-                    tasks = self.get_tasks_for_date(day_date)
-                    if tasks:
-                        task_count = len(tasks)
-                        completed_count = sum(1 for t in tasks if t.is_completed)
-                        info_text = f"{day}\n({completed_count}/{task_count})"
-                        day_btn.config(text=info_text, font=('Arial', 8))
 
                 self.day_buttons[day_date] = day_btn
 
@@ -149,16 +154,36 @@ class CalendarWidget:
         for i in range(len(cal) + 1):
             self.calendar_frame.grid_rowconfigure(i, weight=1)
 
+        # Обновляем стили и информацию о задачах
+        self.update_day_styles()
+
+    def update_day_styles(self):
+        """Обновление только стилей дней без перерисовки"""
+        for day_date, button in self.day_buttons.items():
+            # Получаем стиль для дня
+            style_config = self.get_day_style(day_date)
+
+            # Применяем стиль
+            button.config(**style_config)
+
+            # Обновляем информацию о задачах
+            if self.get_tasks_for_date:
+                tasks = self.get_tasks_for_date(day_date)
+                if tasks:
+                    task_count = len(tasks)
+                    completed_count = sum(1 for t in tasks if t.is_completed)
+                    info_text = f"{day_date.day}\n({completed_count}/{task_count})"
+                    button.config(text=info_text, font=('Arial', 8))
+                else:
+                    button.config(text=str(day_date.day), font=('Arial', 10))
+
     def get_day_style(self, day_date: date) -> dict:
         """Получение стиля для дня календаря"""
         today = date.today()
 
         style = {
             'relief': 'raised',
-            'bd': 1,
-            'font': ('Arial', 10),
-            'width': 8,
-            'height': 3
+            'bd': 1
         }
 
         if day_date == today:
@@ -173,16 +198,25 @@ class CalendarWidget:
         return style
 
     def select_date(self, selected_date: date):
-        """Выбор даты"""
+        """Выбор даты - только обновляем стили"""
+        old_selected = self.selected_date
         self.selected_date = selected_date
-        self.update_calendar()
+
+        # Обновляем стили только для изменившихся дней
+        if old_selected in self.day_buttons:
+            old_style = self.get_day_style(old_selected)
+            self.day_buttons[old_selected].config(**old_style)
+
+        if selected_date in self.day_buttons:
+            new_style = self.get_day_style(selected_date)
+            self.day_buttons[selected_date].config(**new_style)
 
         if self.on_date_select:
             self.on_date_select(selected_date)
 
 
 class TaskCalendarWindow:
-    """Окно календаря с управлением задачами"""
+    """Окно календаря с улучшенным управлением задачами"""
 
     def __init__(self, parent, db_manager, task_manager=None):
         self.parent = parent
@@ -228,17 +262,17 @@ class TaskCalendarWindow:
 
         self.tasks_tree = ttk.Treeview(
             list_frame,
-            columns=('title', 'priority', 'status'),
+            columns=('title', 'urgency', 'status'),
             show='headings',
             height=15
         )
 
         self.tasks_tree.heading('title', text='Название')
-        self.tasks_tree.heading('priority', text='Приоритет')
+        self.tasks_tree.heading('urgency', text='Срочность')
         self.tasks_tree.heading('status', text='Статус')
 
         self.tasks_tree.column('title', width=200)
-        self.tasks_tree.column('priority', width=80)
+        self.tasks_tree.column('urgency', width=80)
         self.tasks_tree.column('status', width=80)
 
         tasks_scrollbar = ttk.Scrollbar(list_frame, orient='vertical', command=self.tasks_tree.yview)
@@ -316,17 +350,23 @@ class TaskCalendarWindow:
     def go_to_selected_day(self):
         """Переход к выбранному дню в основном интерфейсе"""
         if self.task_manager:
-            self.task_manager.current_date = self.selected_date
-            self.task_manager.refresh_task_list()
-            self.task_manager.update_datetime()
+            # Исправляем переход к дню
+            self.task_manager.go_to_date(self.selected_date)
             self.window.destroy()
 
     def create_task_for_date(self):
         """Создание новой задачи для выбранной даты"""
         if self.task_manager:
-            new_task = self.task_manager.create_new_task_for_date(self.selected_date)
-            self.refresh_tasks()
-            self.calendar.update_calendar()
+            from .ui_components import TaskEditDialog
+
+            # Создаем новую задачу для выбранной даты
+            new_task = Task()
+            new_task.date_scheduled = self.selected_date.isoformat()
+
+            dialog = TaskEditDialog(self.window, self.task_manager, new_task)
+            if dialog.result:
+                self.refresh_tasks()
+                self.calendar.update_day_styles()  # Оптимизированное обновление
 
     def on_task_double_click(self, event):
         """Обработка двойного клика по задаче"""
@@ -346,8 +386,8 @@ class TaskCalendarWindow:
         for task in tasks:
             if task.title == clean_title:
                 if self.task_manager:
-                    self.task_manager.current_date = self.selected_date
-                    self.task_manager.refresh_task_list()
+                    # Переходим к дню и выбираем задачу
+                    self.task_manager.go_to_date(self.selected_date)
                     self.task_manager.select_task(task)
                     self.window.destroy()
                 break

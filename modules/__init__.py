@@ -7,9 +7,9 @@ from modules.task_models import Task, TaskType
 from modules.database import DatabaseManager
 from modules.colors import get_priority_color, QUADRANT_COLORS, UI_COLORS
 from modules.ui_components import (
-    CompactQuadrantsWidget,
-    TaskListWidget,
-    TaskEditPanel,
+    FullScreenQuadrantsWidget,
+    CompactTaskListWidget,
+    TaskEditDialog,
     TaskTypeDialog
 )
 from modules.calendar_manager import CalendarMixin
@@ -30,7 +30,7 @@ __all__ = [
     'get_priority_color', 'QUADRANT_COLORS', 'UI_COLORS',
 
     # UI компоненты
-    'CompactQuadrantsWidget', 'TaskListWidget', 'TaskEditPanel', 'TaskTypeDialog',
+    'FullScreenQuadrantsWidget', 'CompactTaskListWidget', 'TaskEditDialog', 'TaskTypeDialog',
 
     # Mixins
     'CalendarMixin', 'DragDropMixin',

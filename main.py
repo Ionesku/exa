@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Task Manager - Основной файл приложения (рефакторинг)
+Task Manager - Основной файл приложения (исправленная версия)
 """
 
 import tkinter as tk
@@ -13,7 +13,7 @@ from typing import Optional
 from modules import (
     Task, TaskType, DatabaseManager,
     get_priority_color, UI_COLORS,
-    CompactQuadrantsWidget, TaskListWidget, TaskEditPanel,
+    FullScreenQuadrantsWidget, CompactTaskListWidget, TaskEditDialog,
     CalendarMixin, DragDropMixin
 )
 
@@ -24,7 +24,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Task Manager")
-        self.root.geometry("1000x700")  # Компактный размер
+        self.root.geometry("1000x700")
         self.root.configure(bg=UI_COLORS['background'])
 
         # Инициализация компонентов
@@ -70,7 +70,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
         self.setup_hotkeys()
 
     def setup_task_manager(self):
-        """Настройка основной вкладки"""
+        """Настройка основной вкладки с responsive дизайном"""
         # Основной контейнер
         main_container = ttk.Frame(self.task_frame)
         main_container.pack(fill='both', expand=True, padx=5, pady=5)
@@ -78,16 +78,8 @@ class TaskManager(DragDropMixin, CalendarMixin):
         # Верхняя панель с информацией и кнопками
         self.setup_top_panel(main_container)
 
-        # Средняя панель с квадрантами и задачами
-        middle_panel = ttk.Frame(main_container)
-        middle_panel.pack(fill='both', expand=True)
-
-        # Создание компонентов интерфейса
-        self.quadrants_widget = CompactQuadrantsWidget(middle_panel, self)
-        self.task_list_widget = TaskListWidget(middle_panel, self)
-
-        # Нижняя панель редактирования
-        self.edit_panel = TaskEditPanel(main_container, self)
+        # Средняя панель с грид-структурой
+        self.setup_responsive_layout(main_container)
 
         # Обновление времени
         self.update_datetime()
@@ -118,6 +110,48 @@ class TaskManager(DragDropMixin, CalendarMixin):
                                       command=self.show_backlog)
         self.backlog_btn.pack(side='right', padx=(5, 0))
 
+    def setup_responsive_layout(self, parent):
+        """Настройка responsive layout с грид-структурой"""
+        # Основной контейнер с возможностью перестройки
+        self.layout_container = ttk.Frame(parent)
+        self.layout_container.pack(fill='both', expand=True)
+
+        # Создание компонентов
+        self.quadrants_widget = FullScreenQuadrantsWidget(self.layout_container, self)
+        self.task_list_widget = CompactTaskListWidget(self.layout_container, self)
+
+        # Привязка события изменения размера
+        self.root.bind('<Configure>', self.on_window_resize)
+
+    def on_window_resize(self, event):
+        """Обработка изменения размера окна для responsive дизайна"""
+        if event.widget == self.root:
+            width = self.root.winfo_width()
+
+            # При ширине меньше 900px переносим задачи под планирование
+            if width < 900:
+                self.switch_to_vertical_layout()
+            else:
+                self.switch_to_horizontal_layout()
+
+    def switch_to_vertical_layout(self):
+        """Переключение на вертикальную компоновку"""
+        # Перепаковываем виджеты
+        self.quadrants_widget.main_frame.pack_forget()
+        self.task_list_widget.main_frame.pack_forget()
+
+        self.quadrants_widget.main_frame.pack(side='top', fill='both', expand=True)
+        self.task_list_widget.main_frame.pack(side='bottom', fill='x', pady=(10, 0))
+
+    def switch_to_horizontal_layout(self):
+        """Переключение на горизонтальную компоновку"""
+        # Перепаковываем виджеты
+        self.quadrants_widget.main_frame.pack_forget()
+        self.task_list_widget.main_frame.pack_forget()
+
+        self.quadrants_widget.main_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        self.task_list_widget.main_frame.pack(side='right', fill='y', padx=(10, 0))
+
     def setup_analytics(self):
         """Настройка вкладки аналитики"""
         ttk.Label(self.analytics_frame, text="Аналитика задач",
@@ -139,8 +173,8 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
     def setup_hotkeys(self):
         """Настройка горячих клавиш"""
-        self.root.bind('<Control-n>', lambda e: self.create_new_task())
-        self.root.bind('<Control-s>', lambda e: self.save_current_task())
+        self.root.bind('<Control-n>', lambda e: self.create_new_task_dialog())
+        self.root.bind('<Control-s>', lambda e: self.quick_save_task())
         self.root.bind('<Control-d>', lambda e: self.delete_current_task())
         self.root.bind('<F1>', lambda e: self.show_hotkeys())
 
@@ -152,7 +186,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
         hotkeys = [
             ("Ctrl+N", "Новая задача"),
-            ("Ctrl+S", "Сохранить задачу"),
+            ("Ctrl+S", "Быстрое сохранение"),
             ("Ctrl+D", "Удалить задачу"),
             ("F1", "Показать горячие клавиши"),
         ]
@@ -164,137 +198,42 @@ class TaskManager(DragDropMixin, CalendarMixin):
             ttk.Label(frame, text=description).pack(side='left', padx=(20, 0))
 
     # Основные методы работы с задачами
-    def create_new_task(self):
-        """Создание новой задачи"""
-        self.current_task = Task()
-        self.load_task_to_editor(self.current_task)
-        self.set_edit_mode(True)
-        self.edit_panel.title_entry.focus()
+    def create_new_task_dialog(self):
+        """Создание новой задачи через диалог"""
+        dialog = TaskEditDialog(self.root, self)
+        if dialog.result:
+            self.refresh_task_list()
+            messagebox.showinfo("Успех", "Задача создана!")
 
-    def load_task_to_editor(self, task: Task):
-        """Загрузка задачи в редактор"""
-        self.edit_panel.title_var.set(task.title)
-        self.edit_panel.content_text.delete(1.0, tk.END)
-        self.edit_panel.content_text.insert(1.0, task.content)
-        self.edit_panel.importance_var.set(task.importance)
-        self.edit_panel.duration_var.set(task.duration)
-        self.edit_panel.has_duration_var.set(task.has_duration)
-        self.edit_panel.priority_var.set(task.priority)
-        self.edit_panel.toggle_duration()
-
-        # Загрузка типов задач
-        self.edit_panel.load_task_types()
-        task_types = self.db.get_task_types()
-
-        if task.task_type_id and task.task_type_id <= len(task_types):
-            self.edit_panel.task_type_var.set(task_types[task.task_type_id - 1].name)
-        else:
-            if task_types:
-                self.edit_panel.task_type_var.set(task_types[0].name)
-
-        # Установка даты планирования
-        if not task.date_scheduled:
-            self.edit_panel.date_var.set("Бэклог")
-        elif task.date_scheduled == self.current_date.isoformat():
-            self.edit_panel.date_var.set("Сегодня")
-        else:
-            self.edit_panel.date_var.set("Другая дата...")
-            try:
-                task_date = datetime.strptime(task.date_scheduled, '%Y-%m-%d').date()
-                self.edit_panel.custom_date_var.set(task_date.strftime('%d.%m.%Y'))
-                self.edit_panel.custom_date_entry.config(state='normal')
-            except:
-                self.edit_panel.custom_date_var.set("")
-
-    def save_current_task(self):
-        """Сохранение текущей задачи"""
+    def edit_current_task(self):
+        """Редактирование текущей задачи через диалог"""
         if not self.current_task:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для редактирования!")
             return
 
-        if not self.edit_panel.title_var.get().strip():
-            messagebox.showwarning("Предупреждение", "Название задачи не может быть пустым!")
-            return
+        dialog = TaskEditDialog(self.root, self, self.current_task)
+        if dialog.result:
+            self.current_task = dialog.result
+            self.refresh_task_list()
+            messagebox.showinfo("Успех", "Задача обновлена!")
 
-        # Получение типа задачи
-        task_types = self.db.get_task_types()
-        type_name = self.edit_panel.task_type_var.get()
-        task_type_id = 1
-        for t in task_types:
-            if t.name == type_name:
-                task_type_id = t.id
-                break
-
-        # Определение даты планирования
-        date_option = self.edit_panel.date_var.get()
-        if date_option == "Бэклог":
-            date_scheduled = ""
-        elif date_option == "Сегодня":
-            date_scheduled = self.current_date.isoformat()
-        elif date_option == "Другая дата...":
-            try:
-                custom_date_str = self.edit_panel.custom_date_var.get()
-                custom_date = datetime.strptime(custom_date_str, '%d.%m.%Y').date()
-                date_scheduled = custom_date.isoformat()
-            except:
-                messagebox.showerror("Ошибка", "Неверный формат даты! Используйте ДД.ММ.ГГГГ")
-                return
-        else:
-            date_scheduled = self.current_date.isoformat()
-
-        # Обновление данных задачи
-        self.current_task.title = self.edit_panel.title_var.get().strip()
-        self.current_task.content = self.edit_panel.content_text.get(1.0, tk.END).strip()
-        self.current_task.importance = self.edit_panel.importance_var.get()
-        self.current_task.duration = self.edit_panel.duration_var.get()
-        self.current_task.has_duration = self.edit_panel.has_duration_var.get()
-        self.current_task.priority = self.edit_panel.priority_var.get()
-        self.current_task.task_type_id = task_type_id
-        self.current_task.date_scheduled = date_scheduled
-
-        # Сохранение в БД
-        self.current_task.id = self.db.save_task(self.current_task)
-
-        # Обновление интерфейса
-        self.refresh_task_list()
-        self.set_edit_mode(False)
-
-        messagebox.showinfo("Успех", "Задача сохранена!")
+    def quick_save_task(self):
+        """Быстрое сохранение текущей задачи"""
+        if self.current_task:
+            self.db.save_task(self.current_task)
+            messagebox.showinfo("Успех", "Задача сохранена!")
 
     def delete_current_task(self):
         """Удаление текущей задачи"""
         if not self.current_task or self.current_task.id == 0:
+            messagebox.showwarning("Предупреждение", "Нет задачи для удаления!")
             return
 
-        if messagebox.askyesno("Подтверждение", "Вы уверены, что хотите удалить эту задачу?"):
+        if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.current_task.title}'?"):
             self.db.delete_task(self.current_task.id)
             self.current_task = None
-            self.clear_editor()
             self.refresh_task_list()
             messagebox.showinfo("Успех", "Задача удалена!")
-
-    def clear_editor(self):
-        """Очистка редактора"""
-        self.edit_panel.title_var.set("")
-        self.edit_panel.content_text.delete(1.0, tk.END)
-        self.edit_panel.importance_var.set(1)
-        self.edit_panel.duration_var.set(30)
-        self.edit_panel.has_duration_var.set(False)
-        self.edit_panel.priority_var.set(5)
-        self.edit_panel.task_type_var.set("")
-        self.edit_panel.date_var.set("Сегодня")
-        self.edit_panel.custom_date_var.set("")
-        self.edit_panel.toggle_duration()
-        self.set_edit_mode(False)
-
-    def toggle_edit_mode(self):
-        """Переключение режима редактирования"""
-        if self.current_task:
-            current_mode = str(self.edit_panel.title_entry['state']) != 'disabled'
-            self.set_edit_mode(not current_mode)
-
-    def set_edit_mode(self, enabled: bool):
-        """Установка режима редактирования"""
-        self.edit_panel.set_edit_mode(enabled)
 
     def refresh_task_list(self):
         """Обновление списка задач"""
@@ -305,15 +244,12 @@ class TaskManager(DragDropMixin, CalendarMixin):
         date_str = self.current_date.isoformat()
         tasks = self.db.get_tasks(date_str, include_backlog=False)
 
-        # Создание кнопок для задач
+        # Создание блоков для задач
         for task in tasks:
             self.task_list_widget.add_task_button(task)
 
         # Обновление квадрантов
         self.refresh_quadrants(tasks)
-
-        # Обновление области переработок
-        self.refresh_overtime_area(tasks)
 
     def refresh_quadrants(self, tasks):
         """Обновление отображения квадрантов"""
@@ -324,16 +260,10 @@ class TaskManager(DragDropMixin, CalendarMixin):
             if 1 <= task.quadrant <= 4:
                 self.quadrants_widget.add_task_to_quadrant(task, task.quadrant)
 
-    def refresh_overtime_area(self, tasks):
-        """Обновление области переработок"""
-        # TODO: Реализовать область переработок
-        pass
-
     def select_task(self, task: Task):
-        """Выбор задачи для редактирования"""
+        """Выбор задачи для отображения информации"""
         self.current_task = task
-        self.load_task_to_editor(task)
-        self.set_edit_mode(False)
+        # Можно добавить отображение информации о задаче в статусной строке
 
     def toggle_task_completion(self, task: Task, completed: bool):
         """Переключение статуса выполнения задачи"""
@@ -353,6 +283,8 @@ class TaskManager(DragDropMixin, CalendarMixin):
             self.day_start_time = datetime.now().time()
 
             start_hour = self.day_start_time.hour
+
+            # Исправляем проблему с временем 25:00
             self.quadrants_widget.update_time_labels(start_hour)
 
             self.start_day_btn.config(text="День начат", state='disabled')
@@ -379,15 +311,15 @@ class TaskManager(DragDropMixin, CalendarMixin):
                 messagebox.showinfo("День завершен", f"День завершен в {end_time.strftime('%H:%M')}")
 
     def show_backlog(self):
-        """Показать бэклог"""
+        """Показать бэклог с расширенной информацией"""
         backlog_window = tk.Toplevel(self.root)
         backlog_window.title("Бэклог задач")
-        backlog_window.geometry("700x500")
+        backlog_window.geometry("800x600")
 
         ttk.Label(backlog_window, text="Бэклог задач",
                   font=('Arial', 14, 'bold')).pack(pady=10)
 
-        # Получение задач из бэклога (без установленной даты)
+        # Получение задач из бэклога
         backlog_tasks = self.db.get_tasks(include_backlog=True)
         backlog_tasks = [t for t in backlog_tasks if not t.date_scheduled]
 
@@ -395,48 +327,83 @@ class TaskManager(DragDropMixin, CalendarMixin):
             ttk.Label(backlog_window, text="Нет задач в бэклоге").pack(expand=True)
             return
 
-        # Прокручиваемый список задач
-        canvas_frame = ttk.Frame(backlog_window)
-        canvas_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        # Группировка по типам
+        from modules.utils import TaskUtils
+        task_types = self.db.get_task_types()
+        grouped_tasks = TaskUtils.group_tasks_by_type(backlog_tasks, task_types)
 
-        canvas = tk.Canvas(canvas_frame, bg='white')
-        scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical', command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        # Notebook для типов задач
+        types_notebook = ttk.Notebook(backlog_window)
+        types_notebook.pack(fill='both', expand=True, padx=10, pady=10)
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        for type_name, tasks in grouped_tasks.items():
+            # Фрейм для типа
+            type_frame = ttk.Frame(types_notebook)
+            types_notebook.add(type_frame, text=f"{type_name} ({len(tasks)})")
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+            # Список задач
+            canvas_frame = ttk.Frame(type_frame)
+            canvas_frame.pack(fill='both', expand=True, padx=5, pady=5)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+            canvas = tk.Canvas(canvas_frame, bg='white')
+            scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical', command=canvas.yview)
+            scrollable_frame = ttk.Frame(canvas)
 
-        # Список задач
-        for task in backlog_tasks:
-            task_frame = ttk.Frame(scrollable_frame)
-            task_frame.pack(fill='x', pady=2)
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
 
-            # Индикатор приоритета
-            priority_color = get_priority_color(task.priority)
-            priority_label = tk.Label(task_frame, text="●", font=('Arial', 12), fg=priority_color)
-            priority_label.pack(side='left', padx=(0, 5))
+            canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
 
-            # Название задачи
-            ttk.Button(
-                task_frame,
-                text=task.title,
-                command=lambda t=task: self.move_to_today(t, backlog_window)
-            ).pack(side='left', fill='x', expand=True)
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
 
-            # Кнопка удаления
-            ttk.Button(
-                task_frame,
-                text="Удалить",
-                command=lambda t=task: self.delete_from_backlog(t, backlog_window)
-            ).pack(side='right', padx=(5, 0))
+            # Отображение задач с расширенной информацией
+            for task in tasks:
+                task_frame = ttk.Frame(scrollable_frame, relief='solid', bd=1)
+                task_frame.pack(fill='x', pady=2, padx=2)
+
+                # Заголовок с приоритетом
+                header_frame = ttk.Frame(task_frame)
+                header_frame.pack(fill='x', padx=5, pady=2)
+
+                # Индикаторы
+                priority_label = tk.Label(header_frame, text="●",
+                                          fg=get_priority_color(task.priority),
+                                          font=('Arial', 12))
+                priority_label.pack(side='left', padx=(0, 5))
+
+                # Название
+                title_label = ttk.Label(header_frame, text=task.title, font=('Arial', 10, 'bold'))
+                title_label.pack(side='left', fill='x', expand=True)
+
+                # Информация
+                info_frame = ttk.Frame(task_frame)
+                info_frame.pack(fill='x', padx=5, pady=2)
+
+                info_text = f"Важность: {task.importance}/10 | Срочность: {task.priority}/10"
+                if task.has_duration:
+                    info_text += f" | Длительность: {task.duration} мин"
+
+                ttk.Label(info_frame, text=info_text, font=('Arial', 8)).pack(side='left')
+
+                # Кнопки
+                btn_frame = ttk.Frame(task_frame)
+                btn_frame.pack(fill='x', padx=5, pady=2)
+
+                ttk.Button(btn_frame, text="В сегодня",
+                           command=lambda t=task: self.move_to_today(t, backlog_window)).pack(side='left', padx=(0, 5))
+                ttk.Button(btn_frame, text="Редактировать",
+                           command=lambda t=task: self.edit_task_from_backlog(t, backlog_window)).pack(side='left',
+                                                                                                       padx=(0, 5))
+                ttk.Button(btn_frame, text="Удалить",
+                           command=lambda t=task: self.delete_from_backlog(t, backlog_window)).pack(side='right')
+
+        # Кнопка создания новой задачи в бэклог
+        ttk.Button(backlog_window, text="+ Новая задача в бэклог",
+                   command=lambda: self.create_backlog_task(backlog_window)).pack(pady=10)
 
     def move_to_today(self, task: Task, parent_window):
         """Перемещение задачи в сегодняшний день"""
@@ -446,12 +413,54 @@ class TaskManager(DragDropMixin, CalendarMixin):
         parent_window.destroy()
         messagebox.showinfo("Успех", f"Задача '{task.title}' перемещена в сегодняшние задачи")
 
+    def edit_task_from_backlog(self, task: Task, parent_window):
+        """Редактирование задачи из бэклога"""
+        dialog = TaskEditDialog(parent_window, self, task)
+        if dialog.result:
+            parent_window.destroy()
+            self.show_backlog()
+
     def delete_from_backlog(self, task: Task, parent_window):
         """Удаление задачи из бэклога"""
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{task.title}'?"):
             self.db.delete_task(task.id)
             parent_window.destroy()
             self.show_backlog()
+
+    def create_backlog_task(self, parent_window):
+        """Создание новой задачи в бэклог"""
+        dialog = TaskEditDialog(parent_window, self)
+        if dialog.result:
+            parent_window.destroy()
+            self.show_backlog()
+
+    def go_to_date(self, target_date: date):
+        """Переход к указанной дате"""
+        old_date = self.current_date
+        self.current_date = target_date
+
+        # Обновляем интерфейс
+        self.refresh_task_list()
+        self.update_datetime()
+
+        # Показываем информацию о переходе
+        if target_date == date.today():
+            msg = "Переход к сегодняшнему дню"
+        elif target_date < date.today():
+            msg = f"Переход к прошедшему дню: {target_date.strftime('%d.%m.%Y')}"
+        else:
+            msg = f"Переход к будущему дню: {target_date.strftime('%d.%m.%Y')}"
+
+        messagebox.showinfo("Переход к дню", msg)
+
+    def create_new_task_for_date(self, target_date: date):
+        """Создание новой задачи для указанной даты"""
+        new_task = Task()
+        new_task.date_scheduled = target_date.isoformat()
+        new_task.title = f"Новая задача на {target_date.strftime('%d.%m.%Y')}"
+
+        new_task.id = self.db.save_task(new_task)
+        return new_task
 
     def update_analytics(self):
         """Обновление аналитики"""
@@ -481,15 +490,28 @@ class TaskManager(DragDropMixin, CalendarMixin):
     def update_datetime(self):
         """Обновление отображения даты и времени"""
         now = datetime.now()
-        date_str = now.strftime("%A, %d %B %Y")
+
+        # Русские названия дней недели и месяцев
+        weekdays = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+        months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+                  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
+
+        weekday = weekdays[self.current_date.weekday()]
+        month = months[self.current_date.month - 1]
+
+        date_str = f"{weekday}, {self.current_date.day} {month} {self.current_date.year}"
         time_str = now.strftime("%H:%M:%S")
-        self.datetime_label.config(text=f"{date_str} | {time_str}")
+
+        # Показываем текущую дату, а не обязательно сегодняшнюю
+        if self.current_date == date.today():
+            self.datetime_label.config(text=f"{date_str} | {time_str}")
+        else:
+            self.datetime_label.config(text=f"{date_str} (просмотр)")
 
         self.root.after(1000, self.update_datetime)
 
     def load_data(self):
         """Загрузка данных при запуске"""
-        self.edit_panel.load_task_types()
         self.refresh_task_list()
         self.update_analytics()
 
