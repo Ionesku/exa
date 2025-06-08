@@ -61,6 +61,9 @@ class FullScreenQuadrantsWidget:
             # Область для задач
             task_area = tk.Frame(quad_frame, bg=color)
             task_area.pack(fill='both', expand=True, padx=25, pady=25)
+            # Позволяем размещать задачи сеткой
+            for i in range(4):
+                task_area.grid_columnconfigure(i, weight=1)
 
             self.quadrants[quad_id] = {
                 'frame': quad_frame,
@@ -119,28 +122,33 @@ class FullScreenQuadrantsWidget:
             self.quadrants[quad_id]['time_label'].config(text=time_str)
 
     def add_task_to_quadrant(self, task: Task, quadrant: int):
-        """Добавление задачи в квадрант как прямоугольник по длительности"""
+        """Добавление задачи в квадрант как квадрат по длительности"""
         if quadrant not in self.quadrants:
             return
 
         task_area = self.quadrants[quadrant]['task_area']
         color = self.quadrants[quadrant]['color']
 
-        # Вычисляем размер на основе длительности
+        # Размер квадрата зависит от длительности (базовый размер = 30 минут)
         duration = task.duration if task.has_duration else 30
-        # 3 часа = 180 минут = 100% высоты
-        height_percent = min(duration / 180.0, 1.0)
+        base_side = 60
+        side = int(base_side * (duration / 30) ** 0.5)
+        side = max(40, min(side, 120))
+
+        index = len(self.quadrants[quadrant]['tasks'])
+        row = index // 4
+        column = index % 4
 
         # Контейнер для задачи
-        task_container = tk.Frame(task_area, bg=color)
-        task_container.pack(fill='x', pady=2)
+        task_container = tk.Frame(task_area, bg=color, width=side, height=side)
+        task_container.grid(row=row, column=column, padx=2, pady=2, sticky='nsew')
+        task_container.grid_propagate(False)
 
-        # Прямоугольник задачи
+        # Квадрат задачи
         task_rect = tk.Frame(task_container,
                              bg=get_priority_color(task.priority),
-                             relief='solid', bd=2,
-                             height=int(30 * height_percent))
-        task_rect.pack(fill='x')
+                             relief='solid', bd=2)
+        task_rect.pack(fill='both', expand=True)
         task_rect.pack_propagate(False)
 
         # Чекбокс выполнения
@@ -149,20 +157,21 @@ class FullScreenQuadrantsWidget:
                                bg=get_priority_color(task.priority),
                                command=lambda: self.task_manager.toggle_task_completion(
                                    task, completed_var.get()))
-        check.pack(side='left', padx=2)
+        check.pack(anchor='nw', padx=2, pady=2)
 
         # Название задачи
         title = task.title if len(task.title) <= 15 else task.title[:12] + "..."
         task_label = tk.Label(task_rect, text=title,
                               bg=get_priority_color(task.priority),
-                              fg='white', font=('Arial', 9, 'bold'))
-        task_label.pack(side='left', padx=5, expand=True)
+                              fg='white', font=('Arial', 9, 'bold'),
+                              wraplength=side-10, justify='center')
+        task_label.pack(expand=True, padx=5, pady=5)
 
         # События
         for widget in [task_rect, task_label]:
-            widget.bind("<Button-1>", lambda e: self.select_task_widget(task_rect, task))
-            widget.bind("<Button-3>", lambda e: self.return_task_to_list(task))
-            widget.bind("<B1-Motion>", lambda e: self.task_manager.start_drag_from_quadrant(task))
+            widget.bind("<Button-1>", lambda e, w=task_rect, t=task: self.select_task_widget(w, t))
+            widget.bind("<Button-3>", lambda e, t=task: self.return_task_to_list(t))
+            widget.bind("<B1-Motion>", lambda e, t=task: self.task_manager.start_drag_from_quadrant(t))
 
         # Tooltip
         self.create_tooltip(task_rect, self.get_task_tooltip(task))
