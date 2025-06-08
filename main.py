@@ -106,6 +106,13 @@ class TaskManager(DragDropMixin, CalendarMixin):
                                       command=self.show_backlog)
         self.backlog_btn.pack(side='right', padx=(5, 0))
 
+        def on_btn_drop(event):
+            task = self.dragged_task
+            if task and task.date_scheduled:
+                self.move_task_to_backlog(task)
+
+        self.backlog_btn.bind('<ButtonRelease-1>', on_btn_drop)
+
     def setup_responsive_layout(self, parent):
         """Настройка responsive layout с грид-структурой"""
         # Основной контейнер с возможностью перестройки
@@ -318,6 +325,14 @@ class TaskManager(DragDropMixin, CalendarMixin):
         ttk.Label(backlog_window, text="Бэклог задач",
                   font=('Arial', 14, 'bold')).pack(pady=10)
 
+        def on_backlog_drop(event):
+            task = self.dragged_task
+            if task and task.date_scheduled:
+                self.move_task_to_backlog(task)
+
+        backlog_window.bind('<ButtonRelease-1>', on_backlog_drop)
+
+
         # Получение задач из бэклога
         backlog_tasks = self.db.get_tasks(include_backlog=True)
         backlog_tasks = [t for t in backlog_tasks if not t.date_scheduled]
@@ -361,7 +376,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
             # Отображение задач с расширенной информацией
             for task in tasks:
-                task_frame = ttk.Frame(scrollable_frame, relief='solid', bd=1)
+                task_frame = ttk.Frame(scrollable_frame, relief='solid', borderwidth=1)
                 task_frame.pack(fill='x', pady=2, padx=2)
 
                 # Заголовок с приоритетом

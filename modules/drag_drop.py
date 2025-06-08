@@ -43,6 +43,14 @@ class DragDropMixin:
         # Создаем призрачное изображение
         self.create_drag_ghost(task)
 
+    def start_drag_from_backlog(self, task: Task):
+        """Начало перетаскивания из бэклога"""
+        self.dragged_task = task
+        print(f"Перетаскивание задачи из бэклога: {task.title}")
+
+        self.create_drag_ghost(task)
+
+
     def create_drag_ghost(self, task: Task):
         """Создание призрачного изображения при перетаскивании"""
         if self.drag_ghost:
@@ -104,6 +112,9 @@ class DragDropMixin:
         old_quadrant = task.quadrant
         task.quadrant = quadrant
 
+        if not task.date_scheduled:
+            task.date_scheduled = self.current_date.isoformat()
+
         if old_quadrant != quadrant:
             task.move_count += 1
             task.importance = min(10, task.importance + 1)
@@ -141,6 +152,19 @@ class DragDropMixin:
 
         # Очищаем drag state
         self.cleanup_drag()
+
+    def move_task_to_backlog(self, task: Task):
+        """Перемещение задачи из сегодняшнего дня в бэклог"""
+        print(f"Перемещение задачи в бэклог: {task.title}")
+
+        task.date_scheduled = ""
+        task.quadrant = 0
+
+        self.db.save_task(task)
+        self.refresh_task_list()
+
+        self.cleanup_drag()
+
 
     def cleanup_drag(self):
         """Очистка состояния перетаскивания"""

@@ -101,7 +101,7 @@ class FullScreenQuadrantsWidget:
                 original_color = self.quadrants[quad_id]['color']
                 widget.config(bg=original_color)
 
-        widget.bind('<Button-1>', on_drop)
+        widget.bind('<ButtonRelease-1>', on_drop)
         widget.bind('<Enter>', on_enter)
         widget.bind('<Leave>', on_leave)
 
@@ -261,6 +261,7 @@ class CompactTaskListWidget:
         self.task_manager = task_manager
         self.selected_task_widget = None
         self.setup_task_list()
+        self.setup_drop_zone()
 
     def setup_task_list(self):
         """Создание компактного списка задач"""
@@ -295,6 +296,17 @@ class CompactTaskListWidget:
 
         self.canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
+    def setup_drop_zone(self):
+        """Зона для перетаскивания задач из бэклога"""
+
+        def on_drop(event):
+            task = self.task_manager.dragged_task
+            if task and not task.date_scheduled:
+                self.task_manager.move_task_from_backlog(task)
+
+        self.scrollable_frame.bind('<ButtonRelease-1>', on_drop)
+
 
     def clear_tasks(self):
         """Очистка списка задач"""
