@@ -94,13 +94,9 @@ class TaskManager(DragDropMixin, CalendarMixin):
         self.datetime_label.pack(side='left')
 
         # Кнопки управления днем
-        self.start_day_btn = ttk.Button(top_panel, text="Начать день",
-                                        command=self.start_day)
-        self.start_day_btn.pack(side='right', padx=(5, 0))
-
-        self.end_day_btn = ttk.Button(top_panel, text="Завершить день",
-                                      command=self.end_day)
-        self.end_day_btn.pack(side='right', padx=(5, 0))
+        self.day_btn = ttk.Button(top_panel, text="Начать день",
+                                  command=self.toggle_day_state)
+        self.day_btn.pack(side='right', padx=(5, 0))
 
         self.calendar_btn = ttk.Button(top_panel, text="Календарь",
                                        command=self.show_calendar)
@@ -287,9 +283,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
             # Исправляем проблему с временем 25:00
             self.quadrants_widget.update_time_labels(start_hour)
 
-            self.start_day_btn.config(text="День начат", state='disabled')
-            self.end_day_btn.config(state='normal')
-
+            self.day_btn.config(text="Завершить день")
             messagebox.showinfo("День начат", f"День начат в {self.day_start_time.strftime('%H:%M')}")
 
     def end_day(self):
@@ -303,12 +297,17 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
                 self.current_date += timedelta(days=1)
 
-                self.start_day_btn.config(text="Начать день", state='normal')
-                self.end_day_btn.config(state='disabled')
-
+                self.day_btn.config(text="Начать день")
                 self.refresh_task_list()
 
                 messagebox.showinfo("День завершен", f"День завершен в {end_time.strftime('%H:%M')}")
+    def toggle_day_state(self):
+        """Переключение состояния дня"""
+        if self.day_started:
+            self.end_day()
+        else:
+            self.start_day()
+
 
     def show_backlog(self):
         """Показать бэклог с расширенной информацией"""
