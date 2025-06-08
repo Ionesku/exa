@@ -97,6 +97,17 @@ class DragDropMixin:
             self.drag_ghost.destroy()
             self.drag_ghost = None
 
+        # Определяем виджет под курсором после удаления призрака
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+
+        # Если перетаскивается задача, пробуем определить квадрант назначения
+        if self.dragged_task and hasattr(self, 'quadrants_widget'):
+            for q_id, q_data in self.quadrants_widget.quadrants.items():
+                if (self._is_descendant(widget, q_data['task_area']) or
+                        self._is_descendant(widget, q_data['frame'])):
+                    self.move_task_to_quadrant(self.dragged_task, q_id)
+                    break
+
         # Снимаем привязки
         self.root.unbind('<Motion>')
         self.root.unbind('<ButtonRelease-1>')
@@ -104,6 +115,14 @@ class DragDropMixin:
         # Очищаем перетаскиваемую задачу
         self.dragged_task = None
         self.drag_widget = None
+
+    def _is_descendant(self, widget: tk.Widget, parent: tk.Widget) -> bool:
+        """Проверка принадлежности виджета родителю"""
+        while widget:
+            if widget == parent:
+                return True
+            widget = widget.master
+        return False
 
     def move_task_to_quadrant(self, task: Task, quadrant: int):
         """Перемещение задачи в квадрант"""

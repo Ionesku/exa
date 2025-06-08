@@ -415,6 +415,11 @@ class TaskManager(DragDropMixin, CalendarMixin):
                 ttk.Button(btn_frame, text="Удалить",
                            command=lambda t=task: self.delete_from_backlog(t, backlog_window)).pack(side='right')
 
+                # Включаем Drag & Drop из бэклога
+                for w in (task_frame, header_frame, title_label, priority_label):
+                    w.bind("<Button-1>", lambda e, t=task: self.select_task(t))
+                    w.bind("<B1-Motion>", lambda e, t=task: self.start_drag_from_backlog(t))
+
         # Кнопка создания новой задачи в бэклог
         ttk.Button(backlog_window, text="+ Новая задача в бэклог",
                    command=lambda: self.create_backlog_task(backlog_window)).pack(pady=10)
