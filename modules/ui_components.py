@@ -1,17 +1,114 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Компоненты интерфейса (обновленная версия)
+Task Manager - Компоненты интерфейса (обновленная версия с улучшенным алгоритмом)
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser, simpledialog
-from typing import List, Optional, Callable
+import math
+from typing import List, Optional, Callable, Tuple, Dict
 from .task_models import Task, TaskType
 from .colors import get_priority_color, QUADRANT_COLORS, UI_COLORS
 
 
+class QuadrantLayoutManager:
+    """Менеджер компоновки задач в квадранте"""
+
+    def __init__(self, quadrant_width: int = 400, quadrant_height: int = 300):
+        self.quadrant_width = quadrant_width
+        self.quadrant_height = quadrant_height
+        self.total_area = quadrant_width * quadrant_height
+        self.base_duration = 180  # 3 часа = 180 минут = 100% площади квадранта
+        self.min_task_size = 40  # Минимальный размер задачи
+        self.padding = 2  # Отступ между задачами
+
+    def calculate_task_dimensions(self, duration: int) -> Tuple[int, int]:
+        """Расчет размеров задачи на основе длительности"""
+        # Площадь задачи пропорциональна её длительности
+        duration_ratio = min(duration / self.base_duration, 1.0)  # Не больше 100%
+        task_area = self.total_area * duration_ratio
+
+        # Вычисляем размеры с предпочтением квадратной формы
+        side = math.sqrt(task_area)
+
+        # Округляем и ограничиваем
+        width = max(int(side), self.min_task_size)
+        height = max(int(side), self.min_task_size)
+
+        # Корректируем для длинных задач (больше 90 минут)
+        if duration > 90:
+            # Делаем прямоугольником для лучшего размещения
+            aspect_ratio = min(duration / 90, 2.0)
+            width = min(int(width * aspect_ratio), self.quadrant_width - 10)
+            height = max(int(height / aspect_ratio), self.min_task_size)
+
+        return width, height
+
+    def find_best_position(self, width: int, height: int,
+                           occupied_positions: List[Dict]) -> Tuple[int, int]:
+        """Поиск оптимальной позиции для размещения задачи"""
+
+        # Алгоритм размещения: заполнение по строкам с оптимизацией
+        for y in range(0, self.quadrant_height - height, 5):
+            for x in range(0, self.quadrant_width - width, 5):
+
+                # Проверяем, не пересекается ли с уже размещенными задачами
+                if not self._overlaps_with_existing(x, y, width, height, occupied_positions):
+                    return x, y
+
+        # Если не нашли место, размещаем в стопку (перекрытие)
+        stack_offset = len(occupied_positions) * 5
+        return stack_offset, stack_offset
+
+    def _overlaps_with_existing(self, x: int, y: int, width: int, height: int,
+                                occupied_positions: List[Dict]) -> bool:
+        """Проверка пересечения с существующими задачами"""
+        new_rect = {
+            'x1': x, 'y1': y,
+            'x2': x + width, 'y2': y + height
+        }
+
+        for pos in occupied_positions:
+            if (new_rect['x1'] < pos['x2'] and new_rect['x2'] > pos['x1'] and
+                    new_rect['y1'] < pos['y2'] and new_rect['y2'] > pos['y1']):
+                return True
+
+        return False
+
+    def optimize_layout(self, tasks: List[Task]) -> List[Dict]:
+        """Оптимизация размещения всех задач в квадранте"""
+        if not tasks:
+            return []
+
+        # Сортируем задачи по длительности (сначала длинные)
+        sorted_tasks = sorted(tasks,
+                              key=lambda t: t.duration if t.has_duration else 30,
+                              reverse=True)
+
+        layout = []
+        occupied_positions = []
+
+        for task in sorted_tasks:
+            duration = task.duration if task.has_duration else 30
+            width, height = self.calculate_task_dimensions(duration)
+            x, y = self.find_best_position(width, height, occupied_positions)
+
+            position = {
+                'task': task,
+                'x': x, 'y': y,
+                'width': width, 'height': height,
+                'x1': x, 'y1': y,
+                'x2': x + width, 'y2': y + height
+            }
+
+            layout.append(position)
+            occupied_positions.append(position)
+
+        return layout
+
+
 class FullScreenQuadrantsWidget:
-    """Квадранты на весь экран с временем внутри"""
+    """Улучшенный виджет квадрантов с оптимальным размещением"""
 
     def __init__(self, parent, task_manager):
         self.parent = parent
@@ -19,6 +116,7 @@ class FullScreenQuadrantsWidget:
         self.quadrants = {}
         self.time_labels = {}
         self.selected_task_widget = None
+        self.layout_managers = {}  # Менеджеры компоновки для каждого квадранта
         self.setup_quadrants()
 
     def setup_quadrants(self):
@@ -58,12 +156,9 @@ class FullScreenQuadrantsWidget:
             # Делаем время кликабельным для редактирования
             time_label.bind('<Button-1>', lambda e, q=quad_id: self.edit_time(q))
 
-            # Область для задач
+            # Область для задач с абсолютным позиционированием
             task_area = tk.Frame(quad_frame, bg=color)
-            task_area.pack(fill='both', expand=True, padx=25, pady=25)
-            # Позволяем размещать задачи сеткой
-            for i in range(4):
-                task_area.grid_columnconfigure(i, weight=1)
+            task_area.place(x=25, y=25, relwidth=0.9, relheight=0.9)
 
             self.quadrants[quad_id] = {
                 'frame': quad_frame,
@@ -72,11 +167,136 @@ class FullScreenQuadrantsWidget:
                 'tasks': [],
                 'color': color
             }
-            self.time_labels[time_text] = time_label
+
+            # Создаем менеджер компоновки для каждого квадранта
+            self.layout_managers[quad_id] = QuadrantLayoutManager()
 
             # Настройка drop zone
             self.setup_drop_zone(task_area, quad_id)
             self.setup_drop_zone(quad_frame, quad_id)
+
+    def add_task_to_quadrant(self, task: Task, quadrant: int):
+        """Добавление задачи в квадрант с оптимальным размещением"""
+        if quadrant not in self.quadrants:
+            return
+
+        # Проверяем, нет ли уже этой задачи в квадранте
+        if task not in self.quadrants[quadrant]['tasks']:
+            self.quadrants[quadrant]['tasks'].append(task)
+
+        # Перерисовываем весь квадрант с оптимальной компоновкой
+        self.refresh_quadrant_layout(quadrant)
+
+    def refresh_quadrant_layout(self, quadrant: int):
+        """Обновление компоновки квадранта"""
+        if quadrant not in self.quadrants:
+            return
+
+        # Очищаем текущие виджеты задач
+        task_area = self.quadrants[quadrant]['task_area']
+        for widget in task_area.winfo_children():
+            widget.destroy()
+
+        tasks = self.quadrants[quadrant]['tasks']
+        if not tasks:
+            return
+
+        # Обновляем менеджер компоновки для текущих размеров
+        def update_layout_manager():
+            actual_width = task_area.winfo_width() or 400
+            actual_height = task_area.winfo_height() or 300
+
+            layout_manager = self.layout_managers[quadrant]
+            layout_manager.quadrant_width = max(actual_width, 200)
+            layout_manager.quadrant_height = max(actual_height, 150)
+            layout_manager.total_area = layout_manager.quadrant_width * layout_manager.quadrant_height
+
+            # Получаем оптимальную компоновку
+            layout = layout_manager.optimize_layout(tasks)
+
+            # Создаем виджеты для каждой задачи согласно компоновке
+            for pos in layout:
+                self.create_task_widget(task_area, pos, quadrant)
+
+        # Обновляем после того, как виджет отрисовался
+        task_area.after_idle(update_layout_manager)
+
+    def create_task_widget(self, task_area, position: Dict, quadrant: int):
+        """Создание виджета задачи с заданными размерами и позицией"""
+        task = position['task']
+        x, y = position['x'], position['y']
+        width, height = position['width'], position['height']
+
+        color = self.quadrants[quadrant]['color']
+
+        # Контейнер для задачи
+        task_container = tk.Frame(task_area, bg=color)
+        task_container.place(x=x, y=y, width=width, height=height)
+
+        # Основной фрейм задачи с цветом приоритета
+        task_rect = tk.Frame(task_container,
+                             bg=get_priority_color(task.priority),
+                             relief='solid', bd=2)
+        task_rect.pack(fill='both', expand=True, padx=1, pady=1)
+
+        # Чекбокс выполнения (только для достаточно больших задач)
+        if width > 60 and height > 40:
+            completed_var = tk.BooleanVar(value=task.is_completed)
+            check = tk.Checkbutton(task_rect, variable=completed_var,
+                                   bg=get_priority_color(task.priority),
+                                   command=lambda: self.task_manager.toggle_task_completion(
+                                       task, completed_var.get()))
+            check.pack(anchor='nw', padx=2, pady=2)
+
+        # Название задачи
+        max_chars = max(5, width // 8)  # Примерно 8 пикселей на символ
+        title = task.title
+        if len(title) > max_chars:
+            title = title[:max_chars - 3] + "..."
+
+        task_label = tk.Label(task_rect, text=title,
+                              bg=get_priority_color(task.priority),
+                              fg='white', font=('Arial', 8, 'bold'),
+                              wraplength=width - 10, justify='center')
+        task_label.pack(expand=True, fill='both', padx=2, pady=2)
+
+        # Информация о длительности (для больших задач)
+        if task.has_duration and width > 80 and height > 60:
+            duration_label = tk.Label(task_rect,
+                                      text=f"{task.duration} мин",
+                                      bg=get_priority_color(task.priority),
+                                      fg='white', font=('Arial', 7))
+            duration_label.pack(side='bottom', pady=1)
+
+        # События
+        for widget in [task_rect, task_label]:
+            widget.bind("<Button-1>", lambda e, w=task_rect, t=task: self.select_task_widget(w, t))
+            widget.bind("<Button-3>", lambda e, t=task: self.return_task_to_list(t))
+            widget.bind("<B1-Motion>", lambda e, t=task: self.task_manager.start_drag_from_quadrant(t))
+
+        # Tooltip с подробной информацией
+        self.create_tooltip(task_rect, self.get_task_tooltip(task))
+
+    def clear_quadrants(self):
+        """Очистка всех квадрантов"""
+        for quad_id in self.quadrants:
+            # Очищаем виджеты
+            task_area = self.quadrants[quad_id]['task_area']
+            for widget in task_area.winfo_children():
+                widget.destroy()
+
+            # Очищаем список задач
+            self.quadrants[quad_id]['tasks'] = []
+
+        self.selected_task_widget = None
+
+    def remove_task_from_quadrant(self, task: Task, quadrant: int):
+        """Удаление задачи из квадранта"""
+        if quadrant in self.quadrants:
+            tasks = self.quadrants[quadrant]['tasks']
+            if task in tasks:
+                tasks.remove(task)
+                self.refresh_quadrant_layout(quadrant)
 
     def edit_time(self, quad_id):
         """Редактирование времени для квадранта"""
@@ -121,63 +341,6 @@ class FullScreenQuadrantsWidget:
             time_str = f"{hour:02d}:00"
             self.quadrants[quad_id]['time_label'].config(text=time_str)
 
-    def add_task_to_quadrant(self, task: Task, quadrant: int):
-        """Добавление задачи в квадрант как квадрат по длительности"""
-        if quadrant not in self.quadrants:
-            return
-
-        task_area = self.quadrants[quadrant]['task_area']
-        color = self.quadrants[quadrant]['color']
-
-        # Размер квадрата зависит от длительности (базовый размер = 30 минут)
-        duration = task.duration if task.has_duration else 30
-        base_side = 60
-        side = int(base_side * (duration / 30) ** 0.5)
-        side = max(40, min(side, 120))
-
-        index = len(self.quadrants[quadrant]['tasks'])
-        row = index // 4
-        column = index % 4
-
-        # Контейнер для задачи
-        task_container = tk.Frame(task_area, bg=color, width=side, height=side)
-        task_container.grid(row=row, column=column, padx=2, pady=2, sticky='nsew')
-        task_container.grid_propagate(False)
-
-        # Квадрат задачи
-        task_rect = tk.Frame(task_container,
-                             bg=get_priority_color(task.priority),
-                             relief='solid', bd=2)
-        task_rect.pack(fill='both', expand=True)
-        task_rect.pack_propagate(False)
-
-        # Чекбокс выполнения
-        completed_var = tk.BooleanVar(value=task.is_completed)
-        check = tk.Checkbutton(task_rect, variable=completed_var,
-                               bg=get_priority_color(task.priority),
-                               command=lambda: self.task_manager.toggle_task_completion(
-                                   task, completed_var.get()))
-        check.pack(anchor='nw', padx=2, pady=2)
-
-        # Название задачи
-        title = task.title if len(task.title) <= 15 else task.title[:12] + "..."
-        task_label = tk.Label(task_rect, text=title,
-                              bg=get_priority_color(task.priority),
-                              fg='white', font=('Arial', 9, 'bold'),
-                              wraplength=side-10, justify='center')
-        task_label.pack(expand=True, padx=5, pady=5)
-
-        # События
-        for widget in [task_rect, task_label]:
-            widget.bind("<Button-1>", lambda e, w=task_rect, t=task: self.select_task_widget(w, t))
-            widget.bind("<Button-3>", lambda e, t=task: self.return_task_to_list(t))
-            widget.bind("<B1-Motion>", lambda e, t=task: self.task_manager.start_drag_from_quadrant(t))
-
-        # Tooltip
-        self.create_tooltip(task_rect, self.get_task_tooltip(task))
-
-        self.quadrants[quadrant]['tasks'].append((task, task_container))
-
     def select_task_widget(self, widget, task):
         """Выделение виджета задачи"""
         # Снимаем выделение с предыдущего
@@ -212,19 +375,15 @@ class FullScreenQuadrantsWidget:
 
     def return_task_to_list(self, task):
         """Возврат задачи в список по правому клику"""
+        # Находим квадрант с этой задачей и удаляем её
+        for quad_id, quad_data in self.quadrants.items():
+            if task in quad_data['tasks']:
+                self.remove_task_from_quadrant(task, quad_id)
+                break
+
         task.quadrant = 0
         self.task_manager.db.save_task(task)
         self.task_manager.refresh_task_list()
-
-    def clear_quadrants(self):
-        """Очистка всех квадрантов"""
-        for quad_id in self.quadrants:
-            task_area = self.quadrants[quad_id]['task_area']
-            for widget in task_area.winfo_children():
-                widget.destroy()
-            self.quadrants[quad_id]['tasks'] = []
-
-        self.selected_task_widget = None
 
     def create_tooltip(self, widget, text):
         """Простая всплывающая подсказка"""
@@ -258,9 +417,13 @@ class FullScreenQuadrantsWidget:
 
         if task.has_duration:
             lines.append(f"Длительность: {task.duration} мин")
+            percentage = (task.duration / 180) * 100
+            lines.append(f"Площадь: {percentage:.1f}% квадранта")
 
         return "\n".join(lines)
 
+
+# Остальные классы остаются без изменений...
 
 class CompactTaskListWidget:
     """Компактный виджет списка задач без кнопок"""
@@ -320,7 +483,6 @@ class CompactTaskListWidget:
                 self.task_manager.move_task_from_backlog(task)
 
         self.scrollable_frame.bind('<ButtonRelease-1>', on_drop)
-
 
     def clear_tasks(self):
         """Очистка списка задач"""
@@ -438,6 +600,9 @@ class CompactTaskListWidget:
 
         return "\n".join(lines)
 
+
+# Остальные классы (TaskEditDialog, TaskTypeDialog) остаются без изменений...
+# [Здесь должны быть остальные классы из оригинального файла]
 
 class TaskEditDialog:
     """Диалог редактирования задачи"""
@@ -568,10 +733,8 @@ class TaskEditDialog:
     def get_date_options(self):
         """Получение опций для сохранения с учетом последнего выбора"""
         options = ["Бэклог", "Сегодня", "Другая дата..."]
-        # Загружаем последний выбор из настроек
         last_choice = self.task_manager.db.get_setting("last_save_location", "Сегодня")
 
-        # Если последний выбор не в списке, добавляем его
         if last_choice not in options:
             options.insert(1, last_choice)
 
@@ -602,7 +765,6 @@ class TaskEditDialog:
                 except:
                     pass
         else:  # Новая задача
-            # Загружаем последний выбор места сохранения
             last_choice = self.task_manager.db.get_setting("last_save_location", "Сегодня")
             self.date_var.set(last_choice)
 

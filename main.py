@@ -255,13 +255,26 @@ class TaskManager(DragDropMixin, CalendarMixin):
         self.refresh_quadrants(tasks)
 
     def refresh_quadrants(self, tasks):
-        """Обновление отображения квадрантов"""
+        """Обновление отображения квадрантов с новым алгоритмом"""
+        # Очищаем все квадранты
         self.quadrants_widget.clear_quadrants()
 
-        # Размещение задач в квадрантах
+        # Группируем задачи по квадрантам
+        quadrant_tasks = {1: [], 2: [], 3: [], 4: []}
+
         for task in tasks:
             if 1 <= task.quadrant <= 4:
-                self.quadrants_widget.add_task_to_quadrant(task, task.quadrant)
+                quadrant_tasks[task.quadrant].append(task)
+
+        # Размещаем задачи в каждом квадранте
+        for quadrant_id, task_list in quadrant_tasks.items():
+            if task_list:
+                # Очищаем квадрант
+                self.quadrants_widget.quadrants[quadrant_id]['tasks'] = []
+
+                # Добавляем все задачи (новый алгоритм автоматически пересчитает расположение)
+                for task in task_list:
+                    self.quadrants_widget.add_task_to_quadrant(task, quadrant_id)
 
     def select_task(self, task: Task):
         """Выбор задачи для отображения информации"""
