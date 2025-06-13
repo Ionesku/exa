@@ -10,7 +10,8 @@ from modules.ui_components import (
     FullScreenQuadrantsWidget,
     CompactTaskListWidget,
     TaskEditDialog,
-    TaskTypeDialog
+    TaskTypeDialog,
+    TaskDetailPanel
 )
 from modules.calendar_manager import CalendarMixin
 from modules.drag_drop import DragDropMixin
@@ -30,7 +31,7 @@ __all__ = [
     'get_priority_color', 'QUADRANT_COLORS', 'UI_COLORS',
 
     # UI компоненты
-    'FullScreenQuadrantsWidget', 'CompactTaskListWidget', 'TaskEditDialog', 'TaskTypeDialog',
+    'FullScreenQuadrantsWidget', 'CompactTaskListWidget', 'TaskEditDialog', 'TaskTypeDialog', 'TaskDetailPanel',
 
     # Mixins
     'CalendarMixin', 'DragDropMixin',

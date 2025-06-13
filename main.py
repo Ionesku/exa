@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Task Manager - Основной файл приложения (исправленная версия)
+Task Manager - Основной файл приложения (исправленная версия с багфиксами)
 """
 
 import tkinter as tk
@@ -13,18 +13,18 @@ from typing import Optional
 from modules import (
     Task, TaskType, DatabaseManager,
     get_priority_color, UI_COLORS,
-    FullScreenQuadrantsWidget, CompactTaskListWidget, TaskEditDialog,
+    FullScreenQuadrantsWidget, CompactTaskListWidget, TaskEditDialog, TaskDetailPanel,
     CalendarMixin, DragDropMixin
 )
 
 
 class TaskManager(DragDropMixin, CalendarMixin):
-    """Основной класс приложения"""
+    """Основной класс приложения с исправлениями багов"""
 
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Task Manager")
-        self.root.geometry("1000x700")
+        self.root.geometry("1200x800")
         self.root.configure(bg=UI_COLORS['background'])
 
         # Инициализация компонентов
@@ -81,6 +81,9 @@ class TaskManager(DragDropMixin, CalendarMixin):
         # Средняя панель с грид-структурой
         self.setup_responsive_layout(main_container)
 
+        # Нижняя панель деталей задачи
+        self.task_detail_panel = TaskDetailPanel(main_container, self)
+
         # Обновление времени
         self.update_datetime()
 
@@ -119,7 +122,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
         self.layout_container = ttk.Frame(parent)
         self.layout_container.pack(fill='both', expand=True)
 
-        # Создание компонентов
+        # Создание компонентов с обновленными классами
         self.quadrants_widget = FullScreenQuadrantsWidget(self.layout_container, self)
         self.task_list_widget = CompactTaskListWidget(self.layout_container, self)
 
@@ -139,7 +142,6 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
     def switch_to_vertical_layout(self):
         """Переключение на вертикальную компоновку"""
-        # Перепаковываем виджеты
         self.quadrants_widget.main_frame.pack_forget()
         self.task_list_widget.main_frame.pack_forget()
 
@@ -148,7 +150,6 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
     def switch_to_horizontal_layout(self):
         """Переключение на горизонтальную компоновку"""
-        # Перепаковываем виджеты
         self.quadrants_widget.main_frame.pack_forget()
         self.task_list_widget.main_frame.pack_forget()
 
@@ -200,12 +201,13 @@ class TaskManager(DragDropMixin, CalendarMixin):
             ttk.Label(frame, text=key, font=('Arial', 10, 'bold')).pack(side='left')
             ttk.Label(frame, text=description).pack(side='left', padx=(20, 0))
 
-    # Основные методы работы с задачами
+    # ИСПРАВЛЕННЫЕ методы работы с задачами
     def create_new_task_dialog(self):
-        """Создание новой задачи через диалог"""
+        """Создание новой задачи через диалог с ПРИНУДИТЕЛЬНЫМ обновлением"""
         dialog = TaskEditDialog(self.root, self)
         if dialog.result:
-            self.refresh_task_list()
+            # ПРИНУДИТЕЛЬНО обновляем интерфейс
+            self.force_refresh_all()
             messagebox.showinfo("Успех", "Задача создана!")
 
     def edit_current_task(self):
@@ -217,13 +219,34 @@ class TaskManager(DragDropMixin, CalendarMixin):
         dialog = TaskEditDialog(self.root, self, self.current_task)
         if dialog.result:
             self.current_task = dialog.result
-            self.refresh_task_list()
+            # ПРИНУДИТЕЛЬНО обновляем интерфейс
+            self.force_refresh_all()
+            # Обновляем панель деталей
+            self.task_detail_panel.show_task(self.current_task)
             messagebox.showinfo("Успех", "Задача обновлена!")
+
+    def force_refresh_all(self):
+        """ПРИНУДИТЕЛЬНОЕ обновление всего интерфейса"""
+        print("🔄 Принудительное обновление интерфейса...")
+
+        # Принудительно обновляем список задач
+        self.task_list_widget.clear_tasks()
+
+        # Принудительно обновляем квадранты
+        self.quadrants_widget.clear_quadrants()
+
+        # Принудительное обновление дисплея
+        self.root.update()
+
+        # Перезагружаем данные
+        self.refresh_task_list()
 
     def quick_save_task(self):
         """Быстрое сохранение текущей задачи"""
         if self.current_task:
             self.db.save_task(self.current_task)
+            # ПРИНУДИТЕЛЬНО обновляем интерфейс
+            self.force_refresh_all()
             messagebox.showinfo("Успех", "Задача сохранена!")
 
     def delete_current_task(self):
@@ -235,17 +258,23 @@ class TaskManager(DragDropMixin, CalendarMixin):
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.current_task.title}'?"):
             self.db.delete_task(self.current_task.id)
             self.current_task = None
-            self.refresh_task_list()
+            self.task_detail_panel.show_no_task()
+            # ПРИНУДИТЕЛЬНО обновляем интерфейс
+            self.force_refresh_all()
             messagebox.showinfo("Успех", "Задача удалена!")
 
     def refresh_task_list(self):
-        """Обновление списка задач"""
+        """ИСПРАВЛЕННОЕ обновление списка задач"""
+        print(f"📋 Обновление списка задач для даты: {self.current_date}")
+
         # Очистка текущего списка
         self.task_list_widget.clear_tasks()
 
         # Получение задач только для текущей даты (не бэклог)
         date_str = self.current_date.isoformat()
         tasks = self.db.get_tasks(date_str, include_backlog=False)
+
+        print(f"📊 Найдено задач: {len(tasks)}")
 
         # Создание блоков для задач
         for task in tasks:
@@ -255,7 +284,9 @@ class TaskManager(DragDropMixin, CalendarMixin):
         self.refresh_quadrants(tasks)
 
     def refresh_quadrants(self, tasks):
-        """Обновление отображения квадрантов с новым алгоритмом"""
+        """ИСПРАВЛЕННОЕ обновление отображения квадрантов"""
+        print(f"🎯 Обновление квадрантов, задач: {len(tasks)}")
+
         # Очищаем все квадранты
         self.quadrants_widget.clear_quadrants()
 
@@ -265,10 +296,12 @@ class TaskManager(DragDropMixin, CalendarMixin):
         for task in tasks:
             if 1 <= task.quadrant <= 4:
                 quadrant_tasks[task.quadrant].append(task)
+                print(f"  📌 Задача '{task.title}' в квадранте {task.quadrant}")
 
-        # Размещаем задачи в каждом квадранте
+        # Размещаем задачи в каждом квадранте с ПРИНУДИТЕЛЬНОЙ перерисовкой
         for quadrant_id, task_list in quadrant_tasks.items():
             if task_list:
+                print(f"🎯 Квадрант {quadrant_id}: {len(task_list)} задач")
                 # Очищаем квадрант
                 self.quadrants_widget.quadrants[quadrant_id]['tasks'] = []
 
@@ -279,7 +312,8 @@ class TaskManager(DragDropMixin, CalendarMixin):
     def select_task(self, task: Task):
         """Выбор задачи для отображения информации"""
         self.current_task = task
-        # Можно добавить отображение информации о задаче в статусной строке
+        # Отображаем детали в нижней панели
+        self.task_detail_panel.show_task(task)
 
     def toggle_task_completion(self, task: Task, completed: bool):
         """Переключение статуса выполнения задачи"""
@@ -288,8 +322,74 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
         if self.current_task and self.current_task.id == task.id:
             self.current_task.is_completed = completed
+            # Обновляем панель деталей
+            self.task_detail_panel.show_task(self.current_task)
 
-        self.refresh_task_list()
+        # ПРИНУДИТЕЛЬНО обновляем интерфейс
+        self.force_refresh_all()
+
+    # ИСПРАВЛЕННЫЕ методы перетаскивания
+    def move_task_to_quadrant(self, task: Task, quadrant: int):
+        """ИСПРАВЛЕННОЕ перемещение задачи в квадрант"""
+        print(f"🎯 Перемещение задачи '{task.title}' в квадрант {quadrant}")
+
+        old_quadrant = task.quadrant
+        task.quadrant = quadrant
+
+        if not task.date_scheduled:
+            task.date_scheduled = self.current_date.isoformat()
+
+        if old_quadrant != quadrant:
+            task.move_count += 1
+            task.importance = min(10, task.importance + 1)
+
+        # Сохраняем в БД
+        self.db.save_task(task)
+
+        # Добавляем задачу в квадрант
+        self.quadrants_widget.add_task_to_quadrant(task, quadrant)
+
+        if self.current_task and self.current_task.id == task.id:
+            self.current_task = task
+            self.task_detail_panel.show_task(task)
+
+        # Очищаем drag state
+        self.cleanup_drag()
+
+    def move_task_from_backlog(self, task: Task):
+        """ИСПРАВЛЕННОЕ перемещение задачи из бэклога в текущий день"""
+        print(f"📥 Перемещение задачи из бэклога: {task.title}")
+
+        # Устанавливаем дату на сегодня
+        task.date_scheduled = self.current_date.isoformat()
+        task.quadrant = 0  # Сбрасываем квадрант
+
+        self.db.save_task(task)
+
+        # ПРИНУДИТЕЛЬНО обновляем список задач
+        self.force_refresh_all()
+
+        # Очищаем drag state
+        self.cleanup_drag()
+
+    def move_task_to_backlog(self, task: Task):
+        """Перемещение задачи из сегодняшнего дня в бэклог"""
+        print(f"📤 Перемещение задачи в бэклог: {task.title}")
+
+        # Удаляем из квадранта если там была
+        if hasattr(self, 'quadrants_widget'):
+            for quad_id, quad_data in self.quadrants_widget.quadrants.items():
+                if task in quad_data['tasks']:
+                    self.quadrants_widget.remove_task_from_quadrant(task, quad_id)
+                    break
+
+        task.date_scheduled = ""
+        task.quadrant = 0
+
+        self.db.save_task(task)
+        # ПРИНУДИТЕЛЬНО обновляем интерфейс
+        self.force_refresh_all()
+        self.cleanup_drag()
 
     # Методы управления днем
     def start_day(self):
@@ -318,16 +418,16 @@ class TaskManager(DragDropMixin, CalendarMixin):
                 self.current_date += timedelta(days=1)
 
                 self.day_btn.config(text="Начать день")
-                self.refresh_task_list()
+                self.force_refresh_all()
 
                 messagebox.showinfo("День завершен", f"День завершен в {end_time.strftime('%H:%M')}")
+
     def toggle_day_state(self):
         """Переключение состояния дня"""
         if self.day_started:
             self.end_day()
         else:
             self.start_day()
-
 
     def show_backlog(self):
         """Показать бэклог с расширенной информацией"""
@@ -344,7 +444,6 @@ class TaskManager(DragDropMixin, CalendarMixin):
                 self.move_task_to_backlog(task)
 
         backlog_window.bind('<ButtonRelease-1>', on_backlog_drop)
-
 
         # Получение задач из бэклога
         backlog_tasks = self.db.get_tasks(include_backlog=True)
@@ -441,7 +540,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
         """Перемещение задачи в сегодняшний день"""
         task.date_scheduled = self.current_date.isoformat()
         self.db.save_task(task)
-        self.refresh_task_list()
+        self.force_refresh_all()
         parent_window.destroy()
         messagebox.showinfo("Успех", f"Задача '{task.title}' перемещена в сегодняшние задачи")
 
@@ -472,8 +571,11 @@ class TaskManager(DragDropMixin, CalendarMixin):
         self.current_date = target_date
 
         # Обновляем интерфейс
-        self.refresh_task_list()
+        self.force_refresh_all()
         self.update_datetime()
+
+        # Очищаем панель деталей при переходе к другому дню
+        self.task_detail_panel.show_no_task()
 
         # Показываем информацию о переходе
         if target_date == date.today():
@@ -544,7 +646,7 @@ class TaskManager(DragDropMixin, CalendarMixin):
 
     def load_data(self):
         """Загрузка данных при запуске"""
-        self.refresh_task_list()
+        self.force_refresh_all()
         self.update_analytics()
 
     def run(self):

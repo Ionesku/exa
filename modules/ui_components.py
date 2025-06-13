@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Компоненты интерфейса (обновленная версия с улучшенным алгоритмом)
+Task Manager - Компоненты интерфейса (исправлена версия с багфиксами)
 """
 
 import tkinter as tk
@@ -12,53 +12,111 @@ from .colors import get_priority_color, QUADRANT_COLORS, UI_COLORS
 
 
 class QuadrantLayoutManager:
-    """Менеджер компоновки задач в квадранте"""
+    """Менеджер компоновки с поддержкой прямоугольников и проверкой площадей"""
 
     def __init__(self, quadrant_width: int = 400, quadrant_height: int = 300):
         self.quadrant_width = quadrant_width
         self.quadrant_height = quadrant_height
         self.total_area = quadrant_width * quadrant_height
         self.base_duration = 180  # 3 часа = 180 минут = 100% площади квадранта
-        self.min_task_size = 40  # Минимальный размер задачи
-        self.padding = 2  # Отступ между задачами
+        self.min_task_size = 35  # Минимальный размер задачи
+        self.max_width_ratio = 0.8  # Максимальная ширина относительно квадранта
+        self.max_height_ratio = 0.6  # Максимальная высота относительно квадранта
 
     def calculate_task_dimensions(self, duration: int) -> Tuple[int, int]:
-        """Расчет размеров задачи на основе длительности"""
+        """Расчет размеров задачи - ПОДДЕРЖКА ПРЯМОУГОЛЬНИКОВ"""
         # Площадь задачи пропорциональна её длительности
-        duration_ratio = min(duration / self.base_duration, 1.0)  # Не больше 100%
+        duration_ratio = min(duration / self.base_duration, 1.2)  # Разрешаем превышение на 20%
         task_area = self.total_area * duration_ratio
 
-        # Вычисляем размеры с предпочтением квадратной формы
+        # Вычисляем размеры с предпочтением эффективного заполнения
         side = math.sqrt(task_area)
 
-        # Округляем и ограничиваем
+        # Базовые размеры
         width = max(int(side), self.min_task_size)
         height = max(int(side), self.min_task_size)
 
-        # Корректируем для длинных задач (больше 90 минут)
-        if duration > 90:
-            # Делаем прямоугольником для лучшего размещения
-            aspect_ratio = min(duration / 90, 2.0)
-            width = min(int(width * aspect_ratio), self.quadrant_width - 10)
-            height = max(int(height / aspect_ratio), self.min_task_size)
+        # НОВАЯ ЛОГИКА: адаптивные прямоугольники
+        if duration <= 30:
+            # Короткие задачи - компактные квадраты
+            width = height = max(self.min_task_size, int(side * 0.9))
+        elif duration <= 60:
+            # Средние задачи - слегка вытянутые
+            width = min(int(side * 1.2), int(self.quadrant_width * self.max_width_ratio))
+            height = max(int(side * 0.8), self.min_task_size)
+        elif duration <= 120:
+            # Длинные задачи - прямоугольники
+            width = min(int(side * 1.5), int(self.quadrant_width * self.max_width_ratio))
+            height = max(int(side * 0.7), self.min_task_size)
+        else:
+            # Очень длинные задачи - широкие прямоугольники
+            width = min(int(side * 2.0), int(self.quadrant_width * 0.95))
+            height = max(int(side * 0.5), self.min_task_size)
+
+        # Ограничиваем размерами квадранта
+        width = min(width, self.quadrant_width - 2)
+        height = min(height, self.quadrant_height - 2)
 
         return width, height
 
     def find_best_position(self, width: int, height: int,
                            occupied_positions: List[Dict]) -> Tuple[int, int]:
-        """Поиск оптимальной позиции для размещения задачи"""
+        """УЛУЧШЕННЫЙ алгоритм размещения БЕЗ ОТСТУПОВ"""
 
-        # Алгоритм размещения: заполнение по строкам с оптимизацией
-        for y in range(0, self.quadrant_height - height, 5):
-            for x in range(0, self.quadrant_width - width, 5):
+        # Пробуем разные стратегии размещения
+        strategies = [
+            self._try_top_left_fill,
+            self._try_column_fill,
+            self._try_row_fill,
+            self._try_corner_fill
+        ]
 
-                # Проверяем, не пересекается ли с уже размещенными задачами
-                if not self._overlaps_with_existing(x, y, width, height, occupied_positions):
-                    return x, y
+        for strategy in strategies:
+            pos = strategy(width, height, occupied_positions)
+            if pos:
+                return pos
 
-        # Если не нашли место, размещаем в стопку (перекрытие)
-        stack_offset = len(occupied_positions) * 5
+        # Если не нашли место, размещаем в стопку
+        stack_offset = len(occupied_positions) * 2
         return stack_offset, stack_offset
+
+    def _try_top_left_fill(self, width: int, height: int, occupied: List[Dict]) -> Optional[Tuple[int, int]]:
+        """Заполнение слева направо, сверху вниз БЕЗ ОТСТУПОВ"""
+        for y in range(0, self.quadrant_height - height + 1, 2):
+            for x in range(0, self.quadrant_width - width + 1, 2):
+                if not self._overlaps_with_existing(x, y, width, height, occupied):
+                    return x, y
+        return None
+
+    def _try_column_fill(self, width: int, height: int, occupied: List[Dict]) -> Optional[Tuple[int, int]]:
+        """Заполнение по колонкам"""
+        for x in range(0, self.quadrant_width - width + 1, width // 2):
+            for y in range(0, self.quadrant_height - height + 1, 2):
+                if not self._overlaps_with_existing(x, y, width, height, occupied):
+                    return x, y
+        return None
+
+    def _try_row_fill(self, width: int, height: int, occupied: List[Dict]) -> Optional[Tuple[int, int]]:
+        """Заполнение по строкам"""
+        for y in range(0, self.quadrant_height - height + 1, height // 2):
+            for x in range(0, self.quadrant_width - width + 1, 2):
+                if not self._overlaps_with_existing(x, y, width, height, occupied):
+                    return x, y
+        return None
+
+    def _try_corner_fill(self, width: int, height: int, occupied: List[Dict]) -> Optional[Tuple[int, int]]:
+        """Размещение по углам"""
+        corners = [
+            (0, 0),  # Верхний левый
+            (self.quadrant_width - width, 0),  # Верхний правый
+            (0, self.quadrant_height - height),  # Нижний левый
+            (self.quadrant_width - width, self.quadrant_height - height),  # Нижний правый
+        ]
+
+        for x, y in corners:
+            if x >= 0 and y >= 0 and not self._overlaps_with_existing(x, y, width, height, occupied):
+                return x, y
+        return None
 
     def _overlaps_with_existing(self, x: int, y: int, width: int, height: int,
                                 occupied_positions: List[Dict]) -> bool:
@@ -69,21 +127,37 @@ class QuadrantLayoutManager:
         }
 
         for pos in occupied_positions:
-            if (new_rect['x1'] < pos['x2'] and new_rect['x2'] > pos['x1'] and
-                    new_rect['y1'] < pos['y2'] and new_rect['y2'] > pos['y1']):
+            # Добавляем небольшой буфер для избежания наложения
+            buffer = 1
+            if (new_rect['x1'] < pos['x2'] + buffer and new_rect['x2'] > pos['x1'] - buffer and
+                    new_rect['y1'] < pos['y2'] + buffer and new_rect['y2'] > pos['y1'] - buffer):
                 return True
 
         return False
 
+    def check_area_overflow(self, tasks: List[Task]) -> Tuple[bool, float]:
+        """Проверка превышения площади квадранта"""
+        total_duration = sum(t.duration if t.has_duration else 30 for t in tasks)
+        area_ratio = total_duration / self.base_duration
+        return area_ratio > 1.0, area_ratio
+
     def optimize_layout(self, tasks: List[Task]) -> List[Dict]:
-        """Оптимизация размещения всех задач в квадранте"""
+        """Оптимизация размещения с проверкой площадей"""
         if not tasks:
             return []
 
-        # Сортируем задачи по длительности (сначала длинные)
+        # Проверяем превышение площади
+        overflow, ratio = self.check_area_overflow(tasks)
+        if overflow:
+            print(f"⚠️ Превышение площади квадранта: {ratio:.1%}")
+
+        # Сортируем задачи: сначала длинные, потом по приоритету
         sorted_tasks = sorted(tasks,
-                              key=lambda t: t.duration if t.has_duration else 30,
-                              reverse=True)
+                              key=lambda t: (
+                                  -(t.duration if t.has_duration else 30),  # Длительность по убыванию
+                                  -t.priority,  # Приоритет по убыванию
+                                  -t.importance  # Важность по убыванию
+                              ))
 
         layout = []
         occupied_positions = []
@@ -108,7 +182,7 @@ class QuadrantLayoutManager:
 
 
 class FullScreenQuadrantsWidget:
-    """Улучшенный виджет квадрантов с оптимальным размещением"""
+    """ИСПРАВЛЕННЫЙ виджет квадрантов"""
 
     def __init__(self, parent, task_manager):
         self.parent = parent
@@ -116,49 +190,58 @@ class FullScreenQuadrantsWidget:
         self.quadrants = {}
         self.time_labels = {}
         self.selected_task_widget = None
-        self.layout_managers = {}  # Менеджеры компоновки для каждого квадранта
+        self.layout_managers = {}
+        self.tooltip_window = None  # Для контроля всплывающих подсказок
         self.setup_quadrants()
+        self.setup_context_menu()
+
+    def setup_context_menu(self):
+        """Создание контекстного меню"""
+        self.context_menu = tk.Menu(self.task_manager.root, tearoff=0)
+        self.context_menu.add_command(label="Редактировать", command=self.edit_selected_task)
+        self.context_menu.add_command(label="Вернуть в список", command=self.return_selected_to_list)
+        self.context_menu.add_command(label="В бэклог", command=self.move_selected_to_backlog)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Удалить", command=self.delete_selected_task)
 
     def setup_quadrants(self):
-        """Создание квадрантов на весь экран"""
+        """ИСПРАВЛЕННОЕ создание квадрантов"""
         self.main_frame = ttk.LabelFrame(self.parent, text="Планирование")
         self.main_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
 
         # Основная сетка 2x2
         self.grid_frame = tk.Frame(self.main_frame)
-        self.grid_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        self.grid_frame.pack(fill='both', expand=True, padx=2, pady=2)
 
-        # Настройка сетки - каждая ячейка растягивается
+        # Настройка сетки
         self.grid_frame.grid_rowconfigure(0, weight=1)
         self.grid_frame.grid_rowconfigure(1, weight=1)
         self.grid_frame.grid_columnconfigure(0, weight=1)
         self.grid_frame.grid_columnconfigure(1, weight=1)
 
-        # Конфигурация квадрантов
+        # ИСПРАВЛЕННАЯ конфигурация квадрантов
         quad_configs = [
-            (0, 1, 1, "12:00", QUADRANT_COLORS[1]),  # Верхний правый
-            (1, 1, 2, "15:00", QUADRANT_COLORS[2]),  # Нижний правый
-            (1, 0, 3, "18:00", QUADRANT_COLORS[3]),  # Нижний левый
-            (0, 0, 4, "09:00", QUADRANT_COLORS[4])  # Верхний левый
+            (0, 1, 1, "12:00", QUADRANT_COLORS[1]),  # Верхний правый - квадрант 1
+            (1, 1, 2, "15:00", QUADRANT_COLORS[2]),  # Нижний правый - квадрант 2
+            (1, 0, 3, "18:00", QUADRANT_COLORS[3]),  # Нижний левый - квадрант 3
+            (0, 0, 4, "09:00", QUADRANT_COLORS[4])  # Верхний левый - квадрант 4
         ]
 
         for row, col, quad_id, time_text, color in quad_configs:
             # Основной фрейм квадранта
-            quad_frame = tk.Frame(self.grid_frame, bg=color, relief='solid', bd=2)
-            quad_frame.grid(row=row, column=col, sticky='nsew', padx=1, pady=1)
+            quad_frame = tk.Frame(self.grid_frame, bg=color, relief='solid', bd=1)
+            quad_frame.grid(row=row, column=col, sticky='nsew', padx=0, pady=0)
 
             # Время в углу
             time_label = tk.Label(quad_frame, text=time_text,
                                   bg=color, font=('Arial', 10, 'bold'),
                                   cursor='hand2')
-            time_label.place(x=5, y=5)
-
-            # Делаем время кликабельным для редактирования
+            time_label.place(x=3, y=3)
             time_label.bind('<Button-1>', lambda e, q=quad_id: self.edit_time(q))
 
-            # Область для задач с абсолютным позиционированием
+            # Область для задач - БЕЗ ОТСТУПОВ!
             task_area = tk.Frame(quad_frame, bg=color)
-            task_area.place(x=25, y=25, relwidth=0.9, relheight=0.9)
+            task_area.place(x=0, y=20, relwidth=1.0, relheight=1.0, height=-20)
 
             self.quadrants[quad_id] = {
                 'frame': quad_frame,
@@ -168,126 +251,218 @@ class FullScreenQuadrantsWidget:
                 'color': color
             }
 
-            # Создаем менеджер компоновки для каждого квадранта
             self.layout_managers[quad_id] = QuadrantLayoutManager()
-
-            # Настройка drop zone
             self.setup_drop_zone(task_area, quad_id)
             self.setup_drop_zone(quad_frame, quad_id)
 
-    def add_task_to_quadrant(self, task: Task, quadrant: int):
-        """Добавление задачи в квадрант с оптимальным размещением"""
-        if quadrant not in self.quadrants:
-            return
-
-        # Проверяем, нет ли уже этой задачи в квадранте
-        if task not in self.quadrants[quadrant]['tasks']:
-            self.quadrants[quadrant]['tasks'].append(task)
-
-        # Перерисовываем весь квадрант с оптимальной компоновкой
-        self.refresh_quadrant_layout(quadrant)
-
-    def refresh_quadrant_layout(self, quadrant: int):
-        """Обновление компоновки квадранта"""
-        if quadrant not in self.quadrants:
-            return
-
-        # Очищаем текущие виджеты задач
-        task_area = self.quadrants[quadrant]['task_area']
-        for widget in task_area.winfo_children():
-            widget.destroy()
-
-        tasks = self.quadrants[quadrant]['tasks']
-        if not tasks:
-            return
-
-        # Обновляем менеджер компоновки для текущих размеров
-        def update_layout_manager():
-            actual_width = task_area.winfo_width() or 400
-            actual_height = task_area.winfo_height() or 300
-
-            layout_manager = self.layout_managers[quadrant]
-            layout_manager.quadrant_width = max(actual_width, 200)
-            layout_manager.quadrant_height = max(actual_height, 150)
-            layout_manager.total_area = layout_manager.quadrant_width * layout_manager.quadrant_height
-
-            # Получаем оптимальную компоновку
-            layout = layout_manager.optimize_layout(tasks)
-
-            # Создаем виджеты для каждой задачи согласно компоновке
-            for pos in layout:
-                self.create_task_widget(task_area, pos, quadrant)
-
-        # Обновляем после того, как виджет отрисовался
-        task_area.after_idle(update_layout_manager)
-
     def create_task_widget(self, task_area, position: Dict, quadrant: int):
-        """Создание виджета задачи с заданными размерами и позицией"""
+        """ИСПРАВЛЕННОЕ создание виджета задачи"""
         task = position['task']
         x, y = position['x'], position['y']
         width, height = position['width'], position['height']
 
         color = self.quadrants[quadrant]['color']
 
-        # Контейнер для задачи
+        # Контейнер для задачи - БЕЗ ОТСТУПОВ
         task_container = tk.Frame(task_area, bg=color)
         task_container.place(x=x, y=y, width=width, height=height)
 
-        # Основной фрейм задачи с цветом приоритета
+        # Основной фрейм задачи с полупрозрачностью
         task_rect = tk.Frame(task_container,
                              bg=get_priority_color(task.priority),
-                             relief='solid', bd=2)
-        task_rect.pack(fill='both', expand=True, padx=1, pady=1)
+                             relief='solid', bd=1)
+        task_rect.pack(fill='both', expand=True)
+
+        # Применяем полупрозрачность
+        original_color = get_priority_color(task.priority)
+        translucent_color = self.make_color_translucent(original_color, color)
+        task_rect.config(bg=translucent_color)
 
         # Чекбокс выполнения (только для достаточно больших задач)
-        if width > 60 and height > 40:
+        if width > 50 and height > 35:
             completed_var = tk.BooleanVar(value=task.is_completed)
             check = tk.Checkbutton(task_rect, variable=completed_var,
-                                   bg=get_priority_color(task.priority),
+                                   bg=translucent_color, activebackground=translucent_color,
                                    command=lambda: self.task_manager.toggle_task_completion(
                                        task, completed_var.get()))
-            check.pack(anchor='nw', padx=2, pady=2)
+            check.pack(anchor='nw', padx=1, pady=1)
 
-        # Название задачи
-        max_chars = max(5, width // 8)  # Примерно 8 пикселей на символ
+        # Название задачи - адаптивный размер текста
+        font_size = min(9, max(7, width // 15))
+        max_chars = max(3, width // 6)
         title = task.title
         if len(title) > max_chars:
-            title = title[:max_chars - 3] + "..."
+            title = title[:max_chars - 2] + ".."
 
         task_label = tk.Label(task_rect, text=title,
-                              bg=get_priority_color(task.priority),
-                              fg='white', font=('Arial', 8, 'bold'),
-                              wraplength=width - 10, justify='center')
-        task_label.pack(expand=True, fill='both', padx=2, pady=2)
+                              bg=translucent_color,
+                              fg='white', font=('Arial', font_size, 'bold'),
+                              wraplength=max(width - 4, 40), justify='center')
+        task_label.pack(expand=True, fill='both', padx=1, pady=1)
 
         # Информация о длительности (для больших задач)
-        if task.has_duration and width > 80 and height > 60:
+        if task.has_duration and width > 70 and height > 50:
             duration_label = tk.Label(task_rect,
-                                      text=f"{task.duration} мин",
-                                      bg=get_priority_color(task.priority),
-                                      fg='white', font=('Arial', 7))
+                                      text=f"{task.duration}м",
+                                      bg=translucent_color,
+                                      fg='white', font=('Arial', 6))
             duration_label.pack(side='bottom', pady=1)
 
         # События
         for widget in [task_rect, task_label]:
             widget.bind("<Button-1>", lambda e, w=task_rect, t=task: self.select_task_widget(w, t))
-            widget.bind("<Button-3>", lambda e, t=task: self.return_task_to_list(t))
-            widget.bind("<B1-Motion>", lambda e, t=task: self.task_manager.start_drag_from_quadrant(t))
+            widget.bind("<Button-3>", lambda e, t=task: self.show_context_menu(e, t))
+            widget.bind("<B1-Motion>", lambda e, t=task: self.start_drag_task(t))
 
-        # Tooltip с подробной информацией
-        self.create_tooltip(task_rect, self.get_task_tooltip(task))
+        # ИСПРАВЛЕННЫЙ Tooltip
+        self.create_safe_tooltip(task_rect, self.get_task_tooltip(task))
+
+    def make_color_translucent(self, foreground_color: str, background_color: str, alpha: float = 0.75) -> str:
+        """Создание полупрозрачного цвета"""
+        try:
+            # Убираем #
+            fg = foreground_color.lstrip('#')
+            bg = background_color.lstrip('#')
+
+            # Конвертируем в RGB
+            fg_r, fg_g, fg_b = int(fg[0:2], 16), int(fg[2:4], 16), int(fg[4:6], 16)
+            bg_r, bg_g, bg_b = int(bg[0:2], 16), int(bg[2:4], 16), int(bg[4:6], 16)
+
+            # Смешиваем цвета
+            r = int(fg_r * alpha + bg_r * (1 - alpha))
+            g = int(fg_g * alpha + bg_g * (1 - alpha))
+            b = int(fg_b * alpha + bg_b * (1 - alpha))
+
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except:
+            return foreground_color
+
+    def start_drag_task(self, task: Task):
+        """Начало перетаскивания задачи"""
+        self.task_manager.start_drag_from_quadrant(task)
+
+        # УДАЛЯЕМ задачу из квадранта при начале перетаскивания
+        for quad_id, quad_data in self.quadrants.items():
+            if task in quad_data['tasks']:
+                quad_data['tasks'].remove(task)
+                self.force_refresh_quadrant(quad_id)  # ПРИНУДИТЕЛЬНАЯ перерисовка
+                break
+
+    def force_refresh_quadrant(self, quadrant: int):
+        """ПРИНУДИТЕЛЬНАЯ перерисовка квадранта"""
+        if quadrant not in self.quadrants:
+            return
+
+        task_area = self.quadrants[quadrant]['task_area']
+
+        # Удаляем все виджеты
+        for widget in task_area.winfo_children():
+            widget.destroy()
+
+        # Принудительно обновляем дисплей
+        task_area.update()
+
+        tasks = self.quadrants[quadrant]['tasks']
+        if not tasks:
+            return
+
+        # Получаем актуальные размеры
+        self.quadrants[quadrant]['task_area'].update_idletasks()
+        actual_width = task_area.winfo_width() or 350
+        actual_height = task_area.winfo_height() or 250
+
+        # Обновляем менеджер компоновки
+        layout_manager = self.layout_managers[quadrant]
+        layout_manager.quadrant_width = max(actual_width, 200)
+        layout_manager.quadrant_height = max(actual_height, 150)
+        layout_manager.total_area = layout_manager.quadrant_width * layout_manager.quadrant_height
+
+        # Проверяем превышение площади
+        overflow, ratio = layout_manager.check_area_overflow(tasks)
+        if overflow:
+            messagebox.showwarning("Превышение площади",
+                                   f"Задачи занимают {ratio:.0%} площади квадранта!\n"
+                                   f"Рекомендуется перенести часть задач в другой квадрант.")
+
+        # Получаем оптимальную компоновку
+        layout = layout_manager.optimize_layout(tasks)
+
+        # Создаем виджеты
+        for pos in layout:
+            self.create_task_widget(task_area, pos, quadrant)
+
+    def show_context_menu(self, event, task: Task):
+        """Показать контекстное меню для задачи"""
+        self.selected_task = task
+        self.task_manager.select_task(task)
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def edit_selected_task(self):
+        """Редактирование выбранной задачи"""
+        if hasattr(self, 'selected_task'):
+            self.task_manager.current_task = self.selected_task
+            self.task_manager.edit_current_task()
+
+    def return_selected_to_list(self):
+        """Возврат выбранной задачи в список"""
+        if hasattr(self, 'selected_task'):
+            task = self.selected_task
+            for quad_id, quad_data in self.quadrants.items():
+                if task in quad_data['tasks']:
+                    self.remove_task_from_quadrant(task, quad_id)
+                    break
+
+            task.quadrant = 0
+            self.task_manager.db.save_task(task)
+            self.task_manager.refresh_task_list()
+
+    def move_selected_to_backlog(self):
+        """Перемещение выбранной задачи в бэклог"""
+        if hasattr(self, 'selected_task'):
+            task = self.selected_task
+            for quad_id, quad_data in self.quadrants.items():
+                if task in quad_data['tasks']:
+                    self.remove_task_from_quadrant(task, quad_id)
+                    break
+
+            task.quadrant = 0
+            task.date_scheduled = ""
+            self.task_manager.db.save_task(task)
+            self.task_manager.refresh_task_list()
+
+    def delete_selected_task(self):
+        """Удаление выбранной задачи"""
+        if hasattr(self, 'selected_task'):
+            task = self.selected_task
+            if messagebox.askyesno("Подтверждение", f"Удалить задачу '{task.title}'?"):
+                self.task_manager.db.delete_task(task.id)
+                self.task_manager.refresh_task_list()
+
+    def add_task_to_quadrant(self, task: Task, quadrant: int):
+        """ИСПРАВЛЕННОЕ добавление задачи в квадрант"""
+        if quadrant not in self.quadrants:
+            return
+
+        if task not in self.quadrants[quadrant]['tasks']:
+            self.quadrants[quadrant]['tasks'].append(task)
+
+        # ПРИНУДИТЕЛЬНАЯ перерисовка
+        self.force_refresh_quadrant(quadrant)
+
+    def refresh_quadrant_layout(self, quadrant: int):
+        """Обновление компоновки квадранта - DEPRECATED, используйте force_refresh_quadrant"""
+        self.force_refresh_quadrant(quadrant)
 
     def clear_quadrants(self):
         """Очистка всех квадрантов"""
         for quad_id in self.quadrants:
-            # Очищаем виджеты
             task_area = self.quadrants[quad_id]['task_area']
             for widget in task_area.winfo_children():
                 widget.destroy()
-
-            # Очищаем список задач
             self.quadrants[quad_id]['tasks'] = []
-
         self.selected_task_widget = None
 
     def remove_task_from_quadrant(self, task: Task, quadrant: int):
@@ -296,10 +471,9 @@ class FullScreenQuadrantsWidget:
             tasks = self.quadrants[quadrant]['tasks']
             if task in tasks:
                 tasks.remove(task)
-                self.refresh_quadrant_layout(quadrant)
+                self.force_refresh_quadrant(quadrant)
 
     def edit_time(self, quad_id):
-        """Редактирование времени для квадранта"""
         current_time = self.quadrants[quad_id]['time_label']['text']
         new_time = simpledialog.askstring("Редактирование времени",
                                           f"Введите время для квадранта {quad_id}:",
@@ -308,8 +482,6 @@ class FullScreenQuadrantsWidget:
             self.quadrants[quad_id]['time_label'].config(text=new_time)
 
     def setup_drop_zone(self, widget, quad_id):
-        """Настройка зоны для перетаскивания"""
-
         def on_drop(event):
             if self.task_manager.dragged_task:
                 self.task_manager.move_task_to_quadrant(
@@ -328,27 +500,11 @@ class FullScreenQuadrantsWidget:
         widget.bind('<Enter>', on_enter)
         widget.bind('<Leave>', on_leave)
 
-    def update_time_labels(self, start_hour: int):
-        """Обновление меток времени"""
-        times = [
-            (4, start_hour),  # 09:00 -> start_hour
-            (1, start_hour + 3),  # 12:00 -> start_hour + 3
-            (2, start_hour + 6),  # 15:00 -> start_hour + 6
-            (3, (start_hour + 9) % 24)  # 18:00 -> start_hour + 9, с обработкой переполнения
-        ]
-
-        for quad_id, hour in times:
-            time_str = f"{hour:02d}:00"
-            self.quadrants[quad_id]['time_label'].config(text=time_str)
-
     def select_task_widget(self, widget, task):
-        """Выделение виджета задачи"""
-        # Снимаем выделение с предыдущего
         if self.selected_task_widget:
             original_color = get_priority_color(self.selected_task_widget[1].priority)
             self.selected_task_widget[0].config(bg=original_color)
 
-        # Выделяем текущий (делаем темнее)
         current_color = get_priority_color(task.priority)
         darker_color = self.darken_color(current_color)
         widget.config(bg=darker_color)
@@ -357,86 +513,95 @@ class FullScreenQuadrantsWidget:
         self.task_manager.select_task(task)
 
     def darken_color(self, hex_color: str) -> str:
-        """Затемнение цвета"""
-        # Убираем #
         hex_color = hex_color.lstrip('#')
-
-        # Конвертируем в RGB
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
 
-        # Затемняем на 30%
         r = int(r * 0.7)
         g = int(g * 0.7)
         b = int(b * 0.7)
 
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def return_task_to_list(self, task):
-        """Возврат задачи в список по правому клику"""
-        # Находим квадрант с этой задачей и удаляем её
-        for quad_id, quad_data in self.quadrants.items():
-            if task in quad_data['tasks']:
-                self.remove_task_from_quadrant(task, quad_id)
-                break
-
-        task.quadrant = 0
-        self.task_manager.db.save_task(task)
-        self.task_manager.refresh_task_list()
-
-    def create_tooltip(self, widget, text):
-        """Простая всплывающая подсказка"""
+    def create_safe_tooltip(self, widget, text):
+        """ИСПРАВЛЕННАЯ всплывающая подсказка"""
 
         def show_tooltip(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+            # Закрываем предыдущую подсказку
+            self.hide_tooltip()
 
-            label = tk.Label(tooltip, text=text, background="lightyellow",
-                             relief="solid", borderwidth=1, font=('Arial', 9))
+            self.tooltip_window = tk.Toplevel()
+            self.tooltip_window.wm_overrideredirect(True)
+            self.tooltip_window.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+            self.tooltip_window.wm_attributes("-topmost", True)
+
+            label = tk.Label(self.tooltip_window, text=text, background="lightyellow",
+                             relief="solid", borderwidth=1, font=('Arial', 8),
+                             justify='left', padx=5, pady=3)
             label.pack()
 
-            widget.tooltip = tooltip
-
-        def hide_tooltip(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
+        def hide_tooltip_delayed(event):
+            # Скрываем подсказку с задержкой
+            widget.after(100, self.hide_tooltip)
 
         widget.bind("<Enter>", show_tooltip)
-        widget.bind("<Leave>", hide_tooltip)
+        widget.bind("<Leave>", hide_tooltip_delayed)
+
+    def hide_tooltip(self):
+        """Скрытие всплывающей подсказки"""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
 
     def get_task_tooltip(self, task: Task) -> str:
-        """Текст подсказки для задачи"""
         lines = [
-            f"Название: {task.title}",
-            f"Важность: {task.importance}/10",
-            f"Срочность: {task.priority}/10"
+            f"📝 {task.title}",
+            f"⭐ Важность: {task.importance}/10",
+            f"🔥 Срочность: {task.priority}/10"
         ]
 
         if task.has_duration:
-            lines.append(f"Длительность: {task.duration} мин")
+            lines.append(f"⏱️ Длительность: {task.duration} мин")
             percentage = (task.duration / 180) * 100
-            lines.append(f"Площадь: {percentage:.1f}% квадранта")
+            lines.append(f"📊 Площадь: {percentage:.1f}%")
 
         return "\n".join(lines)
 
+    def update_time_labels(self, start_hour: int):
+        times = [
+            (4, start_hour),
+            (1, start_hour + 3),
+            (2, start_hour + 6),
+            (3, (start_hour + 9) % 24)
+        ]
 
-# Остальные классы остаются без изменений...
+        for quad_id, hour in times:
+            time_str = f"{hour:02d}:00"
+            self.quadrants[quad_id]['time_label'].config(text=time_str)
 
+
+# Остальные классы остаются теми же... (CompactTaskListWidget, TaskDetailPanel, etc.)
 class CompactTaskListWidget:
-    """Компактный виджет списка задач без кнопок"""
+    """Виджет списка задач с вкладками и контекстным меню"""
 
     def __init__(self, parent, task_manager):
         self.parent = parent
         self.task_manager = task_manager
         self.selected_task_widget = None
         self.setup_task_list()
-        self.setup_drop_zone()
+        self.setup_context_menu()
+
+    def setup_context_menu(self):
+        """Создание контекстного меню для задач"""
+        self.context_menu = tk.Menu(self.task_manager.root, tearoff=0)
+        self.context_menu.add_command(label="Редактировать", command=self.edit_selected_task)
+        self.context_menu.add_command(label="В бэклог", command=self.move_selected_to_backlog)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Удалить", command=self.delete_selected_task)
 
     def setup_task_list(self):
-        """Создание компактного списка задач"""
+        """Создание списка задач с вкладками"""
         self.main_frame = ttk.LabelFrame(self.parent, text="Задачи")
         self.main_frame.pack(side='right', fill='y', padx=(10, 0))
 
@@ -449,32 +614,52 @@ class CompactTaskListWidget:
                    command=self.task_manager.create_new_task_dialog).pack(
             fill='x', padx=5, pady=(5, 0))
 
+        # Вкладки
+        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook.pack(fill='both', expand=True, padx=5, pady=5)
+
+        # Вкладка "Активные"
+        self.active_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.active_frame, text="Активные")
+        self.setup_task_tab(self.active_frame, "active")
+
+        # Вкладка "Выполненные"
+        self.completed_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.completed_frame, text="Выполненные")
+        self.setup_task_tab(self.completed_frame, "completed")
+
+    def setup_task_tab(self, parent, tab_type):
+        """Настройка вкладки с задачами"""
         # Прокручиваемый список
-        canvas_frame = ttk.Frame(self.main_frame)
-        canvas_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        canvas = tk.Canvas(parent, bg='white', width=230)
+        scrollbar = ttk.Scrollbar(parent, orient='vertical', command=canvas.yview)
 
-        self.canvas = tk.Canvas(canvas_frame, bg='white', width=230)
-        scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical',
-                                  command=self.canvas.yview)
-
-        self.scrollable_frame = ttk.Frame(self.canvas)
-        self.scrollable_frame.bind(
+        scrollable_frame = ttk.Frame(canvas)
+        scrollable_frame.bind(
             "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
 
-        self.scrollable_window = self.canvas.create_window(
-            (0, 0), window=self.scrollable_frame, anchor="nw")
-        self.canvas.bind(
+        scrollable_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.bind(
             "<Configure>",
-            lambda e: self.canvas.itemconfig(self.scrollable_window, width=e.width)
+            lambda e: canvas.itemconfig(scrollable_window, width=e.width)
         )
-        self.canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-        self.canvas.pack(side="left", fill="both", expand=True)
+        canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-    def setup_drop_zone(self):
+        # Сохраняем ссылки
+        if tab_type == "active":
+            self.active_canvas = canvas
+            self.active_scrollable_frame = scrollable_frame
+            self.setup_drop_zone(scrollable_frame)
+        else:
+            self.completed_canvas = canvas
+            self.completed_scrollable_frame = scrollable_frame
+
+    def setup_drop_zone(self, widget):
         """Зона для перетаскивания задач из бэклога"""
 
         def on_drop(event):
@@ -482,18 +667,31 @@ class CompactTaskListWidget:
             if task and not task.date_scheduled:
                 self.task_manager.move_task_from_backlog(task)
 
-        self.scrollable_frame.bind('<ButtonRelease-1>', on_drop)
+        widget.bind('<ButtonRelease-1>', on_drop)
 
     def clear_tasks(self):
-        """Очистка списка задач"""
-        for widget in self.scrollable_frame.winfo_children():
+        """ПРИНУДИТЕЛЬНАЯ очистка списка задач"""
+        for widget in self.active_scrollable_frame.winfo_children():
             widget.destroy()
+        for widget in self.completed_scrollable_frame.winfo_children():
+            widget.destroy()
+
+        # Принудительно обновляем
+        self.active_scrollable_frame.update()
+        self.completed_scrollable_frame.update()
+
         self.selected_task_widget = None
 
     def add_task_button(self, task: Task):
-        """Добавление блока задачи без кнопок"""
+        """Добавление блока задачи в соответствующую вкладку"""
+        # Определяем, в какую вкладку добавлять
+        if task.is_completed:
+            parent_frame = self.completed_scrollable_frame
+        else:
+            parent_frame = self.active_scrollable_frame
+
         # Контейнер задачи
-        task_container = tk.Frame(self.scrollable_frame,
+        task_container = tk.Frame(parent_frame,
                                   bg=get_priority_color(task.priority),
                                   relief='solid', bd=1, height=40)
         task_container.pack(fill='x', pady=2)
@@ -519,29 +717,80 @@ class CompactTaskListWidget:
 
         # События
         for widget in [task_container, task_label]:
-            widget.bind("<Button-1>", lambda e: self.select_task_widget(task_container, task))
-            widget.bind("<B1-Motion>", lambda e: self.task_manager.start_drag_from_list(task))
+            widget.bind("<Button-1>", lambda e, t=task: self.select_task_widget(task_container, t))
+            widget.bind("<Button-3>", lambda e, t=task: self.show_context_menu(e, t))
 
-        # Tooltip
-        self.create_tooltip(task_container, self.get_task_tooltip(task))
+            # Перетаскивание только для активных задач
+            if not task.is_completed:
+                widget.bind("<B1-Motion>", lambda e, t=task: self.start_drag_task(t))
+
+    def start_drag_task(self, task: Task):
+        """Начало перетаскивания - удаляем из списка"""
+        self.task_manager.start_drag_from_list(task)
+
+        # Удаляем виджет задачи из интерфейса
+        self.remove_task_widget(task)
+
+    def remove_task_widget(self, task: Task):
+        """Удаление виджета задачи из интерфейса"""
+        for frame in [self.active_scrollable_frame, self.completed_scrollable_frame]:
+            for widget in frame.winfo_children():
+                # Проверяем, соответствует ли виджет этой задаче
+                try:
+                    # Находим Label с названием задачи
+                    for child in widget.winfo_children():
+                        if isinstance(child, tk.Label) and task.title in child['text']:
+                            widget.destroy()
+                            frame.update()  # Принудительное обновление
+                            return
+                except:
+                    continue
+
+    def show_context_menu(self, event, task: Task):
+        """Показать контекстное меню для задачи"""
+        self.selected_task = task
+        self.task_manager.select_task(task)
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def edit_selected_task(self):
+        """Редактирование выбранной задачи"""
+        if hasattr(self, 'selected_task'):
+            self.task_manager.current_task = self.selected_task
+            self.task_manager.edit_current_task()
+
+    def move_selected_to_backlog(self):
+        """Перемещение выбранной задачи в бэклог"""
+        if hasattr(self, 'selected_task'):
+            task = self.selected_task
+            task.quadrant = 0
+            task.date_scheduled = ""
+            self.task_manager.db.save_task(task)
+            self.task_manager.refresh_task_list()
+
+    def delete_selected_task(self):
+        """Удаление выбранной задачи"""
+        if hasattr(self, 'selected_task'):
+            task = self.selected_task
+            if messagebox.askyesno("Подтверждение", f"Удалить задачу '{task.title}'?"):
+                self.task_manager.db.delete_task(task.id)
+                self.task_manager.refresh_task_list()
 
     def select_task_widget(self, widget, task):
         """Выделение виджета задачи"""
-        # Снимаем выделение с предыдущего
         if self.selected_task_widget:
             original_color = get_priority_color(self.selected_task_widget[1].priority)
             self.selected_task_widget[0].config(bg=original_color)
-            # Также обновляем label внутри
             for child in self.selected_task_widget[0].winfo_children():
                 if isinstance(child, tk.Label):
                     child.config(bg=original_color)
 
-        # Выделяем текущий (делаем темнее)
         current_color = get_priority_color(task.priority)
         darker_color = self.darken_color(current_color)
         widget.config(bg=darker_color)
 
-        # Обновляем цвет детей
         for child in widget.winfo_children():
             if isinstance(child, tk.Label):
                 child.config(bg=darker_color)
@@ -550,7 +799,6 @@ class CompactTaskListWidget:
         self.task_manager.select_task(task)
 
     def darken_color(self, hex_color: str) -> str:
-        """Затемнение цвета"""
         hex_color = hex_color.lstrip('#')
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
@@ -562,48 +810,195 @@ class CompactTaskListWidget:
 
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def create_tooltip(self, widget, text):
-        """Всплывающая подсказка"""
 
-        def show_tooltip(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+class TaskDetailPanel:
+    """Панель отображения деталей задачи внизу"""
 
-            label = tk.Label(tooltip, text=text, background="lightyellow",
-                             relief="solid", borderwidth=1, font=('Arial', 9))
-            label.pack()
+    def __init__(self, parent, task_manager):
+        self.parent = parent
+        self.task_manager = task_manager
+        self.current_task = None
+        self.is_editing = False
+        self.setup_panel()
 
-            widget.tooltip = tooltip
+    def setup_panel(self):
+        """Создание панели деталей"""
+        self.main_frame = ttk.LabelFrame(self.parent, text="Детали задачи")
+        self.main_frame.pack(side='bottom', fill='x', padx=5, pady=(5, 0))
 
-        def hide_tooltip(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
+        # Основной контейнер
+        content_frame = ttk.Frame(self.main_frame)
+        content_frame.pack(fill='both', expand=True, padx=10, pady=10)
 
-        widget.bind("<Enter>", show_tooltip)
-        widget.bind("<Leave>", hide_tooltip)
+        # Левая часть - информация
+        left_frame = ttk.Frame(content_frame)
+        left_frame.pack(side='left', fill='both', expand=True)
 
-    def get_task_tooltip(self, task: Task) -> str:
-        """Текст подсказки для задачи"""
-        lines = [
-            f"Название: {task.title}",
-            f"Важность: {task.importance}/10",
-            f"Срочность: {task.priority}/10"
-        ]
+        # Название
+        ttk.Label(left_frame, text="Название:").grid(row=0, column=0, sticky='w', pady=2)
+        self.title_var = tk.StringVar()
+        self.title_entry = ttk.Entry(left_frame, textvariable=self.title_var, state='readonly')
+        self.title_entry.grid(row=0, column=1, sticky='ew', padx=(5, 0), pady=2)
 
-        if task.has_duration:
-            lines.append(f"Длительность: {task.duration} мин")
+        # Содержание
+        ttk.Label(left_frame, text="Содержание:").grid(row=1, column=0, sticky='nw', pady=2)
+        self.content_text = tk.Text(left_frame, height=3, state='disabled')
+        self.content_text.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
 
-        if task.is_planned:
-            lines.append(f"Запланировано в квадрант {task.quadrant}")
+        # Параметры
+        params_frame = ttk.Frame(left_frame)
+        params_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=5)
 
-        return "\n".join(lines)
+        ttk.Label(params_frame, text="Важность:").grid(row=0, column=0, padx=5)
+        self.importance_var = tk.IntVar()
+        self.importance_spin = ttk.Spinbox(params_frame, from_=1, to=10,
+                                           textvariable=self.importance_var,
+                                           width=5, state='readonly')
+        self.importance_spin.grid(row=0, column=1, padx=5)
+
+        ttk.Label(params_frame, text="Срочность:").grid(row=0, column=2, padx=5)
+        self.priority_var = tk.IntVar()
+        self.priority_spin = ttk.Spinbox(params_frame, from_=1, to=10,
+                                         textvariable=self.priority_var,
+                                         width=5, state='readonly')
+        self.priority_spin.grid(row=0, column=3, padx=5)
+
+        ttk.Label(params_frame, text="Длительность:").grid(row=0, column=4, padx=5)
+        self.duration_var = tk.IntVar()
+        self.duration_spin = ttk.Spinbox(params_frame, from_=5, to=480,
+                                         textvariable=self.duration_var,
+                                         width=8, state='readonly')
+        self.duration_spin.grid(row=0, column=5, padx=5)
+
+        # Правая часть - кнопки
+        right_frame = ttk.Frame(content_frame)
+        right_frame.pack(side='right', fill='y', padx=(10, 0))
+
+        self.edit_btn = ttk.Button(right_frame, text="Редактировать",
+                                   command=self.toggle_edit_mode)
+        self.edit_btn.pack(pady=2)
+
+        self.save_btn = ttk.Button(right_frame, text="Сохранить",
+                                   command=self.save_changes, state='disabled')
+        self.save_btn.pack(pady=2)
+
+        self.cancel_btn = ttk.Button(right_frame, text="Отмена",
+                                     command=self.cancel_edit, state='disabled')
+        self.cancel_btn.pack(pady=2)
+
+        # Настройка растягивания
+        left_frame.grid_columnconfigure(1, weight=1)
+
+        # Начальное состояние
+        self.show_no_task()
+
+    def show_task(self, task: Task):
+        """Отображение задачи"""
+        self.current_task = task
+
+        if task:
+            self.title_var.set(task.title)
+            self.content_text.config(state='normal')
+            self.content_text.delete(1.0, tk.END)
+            self.content_text.insert(1.0, task.content)
+            self.content_text.config(state='disabled')
+
+            self.importance_var.set(task.importance)
+            self.priority_var.set(task.priority)
+            self.duration_var.set(task.duration)
+
+            self.main_frame.config(text=f"Детали задачи: {task.title[:30]}...")
+            self.edit_btn.config(state='normal')
+        else:
+            self.show_no_task()
+
+    def show_no_task(self):
+        """Отображение пустого состояния"""
+        self.title_var.set("")
+        self.content_text.config(state='normal')
+        self.content_text.delete(1.0, tk.END)
+        self.content_text.config(state='disabled')
+
+        self.importance_var.set(1)
+        self.priority_var.set(5)
+        self.duration_var.set(30)
+
+        self.main_frame.config(text="Детали задачи - выберите задачу")
+        self.edit_btn.config(state='disabled')
+
+    def toggle_edit_mode(self):
+        """Переключение режима редактирования"""
+        if self.is_editing:
+            self.save_changes()
+        else:
+            self.enter_edit_mode()
+
+    def enter_edit_mode(self):
+        """Вход в режим редактирования"""
+        self.is_editing = True
+
+        # Разблокируем поля
+        self.title_entry.config(state='normal')
+        self.content_text.config(state='normal')
+        self.importance_spin.config(state='normal')
+        self.priority_spin.config(state='normal')
+        self.duration_spin.config(state='normal')
+
+        # Меняем кнопки
+        self.edit_btn.config(text="Сохранить")
+        self.save_btn.config(state='normal')
+        self.cancel_btn.config(state='normal')
+
+    def exit_edit_mode(self):
+        """Выход из режима редактирования"""
+        self.is_editing = False
+
+        # Блокируем поля
+        self.title_entry.config(state='readonly')
+        self.content_text.config(state='disabled')
+        self.importance_spin.config(state='readonly')
+        self.priority_spin.config(state='readonly')
+        self.duration_spin.config(state='readonly')
+
+        # Меняем кнопки
+        self.edit_btn.config(text="Редактировать")
+        self.save_btn.config(state='disabled')
+        self.cancel_btn.config(state='disabled')
+
+    def save_changes(self):
+        """Сохранение изменений"""
+        if not self.current_task:
+            return
+
+        # Валидация
+        if not self.title_var.get().strip():
+            messagebox.showwarning("Предупреждение", "Название не может быть пустым!")
+            return
+
+        # Сохраняем изменения
+        self.current_task.title = self.title_var.get().strip()
+        self.current_task.content = self.content_text.get(1.0, tk.END).strip()
+        self.current_task.importance = self.importance_var.get()
+        self.current_task.priority = self.priority_var.get()
+        self.current_task.duration = self.duration_var.get()
+
+        # Сохраняем в БД
+        self.task_manager.db.save_task(self.current_task)
+
+        # ПРИНУДИТЕЛЬНО обновляем интерфейс
+        self.task_manager.refresh_task_list()
+
+        self.exit_edit_mode()
+        messagebox.showinfo("Успех", "Изменения сохранены!")
+
+    def cancel_edit(self):
+        """Отмена редактирования"""
+        if self.current_task:
+            self.show_task(self.current_task)  # Возвращаем исходные данные
+        self.exit_edit_mode()
 
 
-# Остальные классы (TaskEditDialog, TaskTypeDialog) остаются без изменений...
-# [Здесь должны быть остальные классы из оригинального файла]
-
+# Остальные классы остаются без изменений
 class TaskEditDialog:
     """Диалог редактирования задачи"""
 
@@ -623,36 +1018,29 @@ class TaskEditDialog:
         self.center_window()
 
     def setup_ui(self):
-        """Настройка интерфейса диалога"""
         main_frame = ttk.Frame(self.dialog)
         main_frame.pack(fill='both', expand=True, padx=15, pady=15)
 
-        # Название
         ttk.Label(main_frame, text="Название:").pack(anchor='w', pady=(0, 5))
         self.title_var = tk.StringVar()
         self.title_entry = ttk.Entry(main_frame, textvariable=self.title_var)
         self.title_entry.pack(fill='x', pady=(0, 10))
 
-        # Содержание
         ttk.Label(main_frame, text="Содержание:").pack(anchor='w', pady=(0, 5))
         self.content_text = tk.Text(main_frame, height=4)
         self.content_text.pack(fill='x', pady=(0, 10))
 
-        # Параметры в две колонки
         params_frame = ttk.Frame(main_frame)
         params_frame.pack(fill='x', pady=(0, 10))
 
-        # Левая колонка
         left_frame = ttk.Frame(params_frame)
         left_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
 
-        # Важность
         ttk.Label(left_frame, text="Важность:").pack(anchor='w')
         self.importance_var = tk.IntVar(value=1)
         ttk.Spinbox(left_frame, from_=1, to=10, textvariable=self.importance_var,
                     width=5).pack(anchor='w', pady=(0, 10))
 
-        # Срочность
         ttk.Label(left_frame, text="Срочность:").pack(anchor='w')
         priority_frame = ttk.Frame(left_frame)
         priority_frame.pack(anchor='w', pady=(0, 10))
@@ -663,11 +1051,9 @@ class TaskEditDialog:
         self.priority_color_label = tk.Label(priority_frame, text="●", font=('Arial', 12))
         self.priority_color_label.pack(side='left')
 
-        # Правая колонка
         right_frame = ttk.Frame(params_frame)
         right_frame.pack(side='right', fill='both', expand=True)
 
-        # Длительность
         self.has_duration_var = tk.BooleanVar()
         duration_check = ttk.Checkbutton(right_frame, text="Длительность:",
                                          variable=self.has_duration_var,
@@ -683,7 +1069,6 @@ class TaskEditDialog:
         self.duration_spin.pack(side='left', padx=(0, 5))
         ttk.Label(duration_frame, text="мин").pack(side='left')
 
-        # Тип задачи
         ttk.Label(right_frame, text="Тип:").pack(anchor='w')
         type_frame = ttk.Frame(right_frame)
         type_frame.pack(anchor='w', pady=(0, 10))
@@ -695,7 +1080,6 @@ class TaskEditDialog:
         ttk.Button(type_frame, text="+", width=2,
                    command=self.add_task_type).pack(side='left')
 
-        # Планирование
         planning_frame = ttk.LabelFrame(main_frame, text="Планирование")
         planning_frame.pack(fill='x', pady=(10, 10))
 
@@ -714,35 +1098,28 @@ class TaskEditDialog:
                                            state='disabled', width=12)
         self.custom_date_entry.pack(side='left')
 
-        # Кнопки
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill='x', pady=(10, 0))
 
         ttk.Button(btn_frame, text="Отмена", command=self.cancel).pack(side='right')
         ttk.Button(btn_frame, text="Сохранить", command=self.save_task).pack(side='right', padx=(0, 10))
 
-        # Привязка событий
         self.priority_var.trace('w', self.update_priority_color)
         self.date_combo.bind('<<ComboboxSelected>>', self.on_date_option_selected)
 
-        # Инициализация
         self.toggle_duration()
         self.update_priority_color()
         self.load_task_types()
 
     def get_date_options(self):
-        """Получение опций для сохранения с учетом последнего выбора"""
         options = ["Бэклог", "Сегодня", "Другая дата..."]
         last_choice = self.task_manager.db.get_setting("last_save_location", "Сегодня")
-
         if last_choice not in options:
             options.insert(1, last_choice)
-
         return options
 
     def load_task_data(self):
-        """Загрузка данных задачи"""
-        if self.task.id > 0:  # Редактирование
+        if self.task.id > 0:
             self.title_var.set(self.task.title)
             self.content_text.insert(1.0, self.task.content)
             self.importance_var.set(self.task.importance)
@@ -750,7 +1127,6 @@ class TaskEditDialog:
             self.has_duration_var.set(self.task.has_duration)
             self.priority_var.set(self.task.priority)
 
-            # Установка даты планирования
             if not self.task.date_scheduled:
                 self.date_var.set("Бэклог")
             elif self.task.date_scheduled == self.task_manager.current_date.isoformat():
@@ -764,17 +1140,15 @@ class TaskEditDialog:
                     self.custom_date_entry.config(state='normal')
                 except:
                     pass
-        else:  # Новая задача
+        else:
             last_choice = self.task_manager.db.get_setting("last_save_location", "Сегодня")
             self.date_var.set(last_choice)
 
     def toggle_duration(self):
-        """Переключение активности поля длительности"""
         state = 'normal' if self.has_duration_var.get() else 'disabled'
         self.duration_spin.config(state=state)
 
     def update_priority_color(self, *args):
-        """Обновление цвета срочности"""
         try:
             priority = int(self.priority_var.get())
             color = get_priority_color(priority)
@@ -783,7 +1157,6 @@ class TaskEditDialog:
             pass
 
     def on_date_option_selected(self, event=None):
-        """Обработка выбора опции даты"""
         selected = self.date_var.get()
         if selected == "Другая дата...":
             self.custom_date_entry.config(state='normal')
@@ -795,7 +1168,6 @@ class TaskEditDialog:
             self.custom_date_var.set("")
 
     def load_task_types(self):
-        """Загрузка типов задач"""
         task_types = self.task_manager.db.get_task_types()
         type_names = [t.name for t in task_types]
         self.task_type_combo['values'] = type_names
@@ -806,19 +1178,16 @@ class TaskEditDialog:
             self.task_type_var.set(type_names[0])
 
     def add_task_type(self):
-        """Добавление нового типа задачи"""
         dialog = TaskTypeDialog(self.dialog, self.task_manager.db)
         if dialog.result:
             self.load_task_types()
             self.task_type_var.set(dialog.result.name)
 
     def save_task(self):
-        """Сохранение задачи"""
         if not self.title_var.get().strip():
             messagebox.showwarning("Предупреждение", "Название задачи не может быть пустым!")
             return
 
-        # Получение типа задачи
         task_types = self.task_manager.db.get_task_types()
         type_name = self.task_type_var.get()
         task_type_id = 1
@@ -827,7 +1196,6 @@ class TaskEditDialog:
                 task_type_id = t.id
                 break
 
-        # Определение даты планирования
         date_option = self.date_var.get()
         if date_option == "Бэклог":
             date_scheduled = ""
@@ -845,10 +1213,8 @@ class TaskEditDialog:
         else:
             date_scheduled = self.task_manager.current_date.isoformat()
 
-        # Сохраняем последний выбор места сохранения
         self.task_manager.db.save_setting("last_save_location", date_option)
 
-        # Обновление данных задачи
         self.task.title = self.title_var.get().strip()
         self.task.content = self.content_text.get(1.0, tk.END).strip()
         self.task.importance = self.importance_var.get()
@@ -858,18 +1224,15 @@ class TaskEditDialog:
         self.task.task_type_id = task_type_id
         self.task.date_scheduled = date_scheduled
 
-        # Сохранение в БД
         self.task.id = self.task_manager.db.save_task(self.task)
 
         self.result = self.task
         self.dialog.destroy()
 
     def cancel(self):
-        """Отмена"""
         self.dialog.destroy()
 
     def center_window(self):
-        """Центрирование окна"""
         self.dialog.update_idletasks()
         x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
         y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
@@ -893,16 +1256,13 @@ class TaskTypeDialog:
         self.center_window()
 
     def setup_ui(self):
-        """Настройка интерфейса"""
         main_frame = ttk.Frame(self.dialog)
         main_frame.pack(fill='both', expand=True, padx=15, pady=15)
 
-        # Название
         ttk.Label(main_frame, text="Название:").pack(anchor='w', pady=(0, 5))
         self.name_var = tk.StringVar()
         ttk.Entry(main_frame, textvariable=self.name_var).pack(fill='x', pady=(0, 10))
 
-        # Цвет
         color_frame = ttk.Frame(main_frame)
         color_frame.pack(fill='x', pady=(0, 10))
 
@@ -916,12 +1276,10 @@ class TaskTypeDialog:
 
         ttk.Button(color_frame, text="Выбрать", command=self.choose_color).pack(side='left')
 
-        # Описание
         ttk.Label(main_frame, text="Описание:").pack(anchor='w', pady=(0, 5))
         self.description_text = tk.Text(main_frame, height=3)
         self.description_text.pack(fill='both', expand=True, pady=(0, 10))
 
-        # Кнопки
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill='x')
 
@@ -931,20 +1289,17 @@ class TaskTypeDialog:
         self.color_var.trace('w', self.update_color_preview)
 
     def choose_color(self):
-        """Выбор цвета"""
         color = colorchooser.askcolor(initialcolor=self.color_var.get())
         if color[1]:
             self.color_var.set(color[1])
 
     def update_color_preview(self, *args):
-        """Обновление превью цвета"""
         try:
             self.color_preview.config(bg=self.color_var.get())
         except:
             pass
 
     def create_type(self):
-        """Создание типа"""
         if not self.name_var.get().strip():
             messagebox.showwarning("Предупреждение", "Название не может быть пустым!")
             return
@@ -960,11 +1315,9 @@ class TaskTypeDialog:
         self.dialog.destroy()
 
     def cancel(self):
-        """Отмена"""
         self.dialog.destroy()
 
     def center_window(self):
-        """Центрирование окна"""
         self.dialog.update_idletasks()
         x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
         y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
