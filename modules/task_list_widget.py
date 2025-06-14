@@ -1,21 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Виджет списка задач
+Task Manager - Виджет списка задач с группировкой по типам
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+from typing import List, Dict
 from .task_models import Task
 from .colors import get_priority_color, get_completed_color
 
 
 class TaskListWidget:
-    """Виджет списка задач с вкладками"""
+    """Виджет списка задач с группировкой по типам"""
 
     def __init__(self, parent, task_manager):
         self.parent = parent
         self.task_manager = task_manager
         self.selected_task = None
+        self.task_groups = {}  # Хранение групп задач
+        self.group_widgets = {}  # Виджеты групп
+        self.group_states = {}  # Состояния групп (свернута/развернута)
         self.setup_task_list()
         self.setup_context_menu()
 
@@ -102,51 +106,129 @@ class TaskListWidget:
             self.completed_canvas = canvas
             self.completed_scrollable_frame = scrollable_frame
 
-    def clear_tasks(self):
-        """Очистка списка задач"""
-        for widget in self.active_scrollable_frame.winfo_children():
-            widget.destroy()
-        for widget in self.completed_scrollable_frame.winfo_children():
-            widget.destroy()
-
-    def update_tasks(self, tasks):
-        """Умное обновление списка задач без полной перерисовки"""
+    def update_tasks(self, tasks: List[Task]):
+        """Обновление списка задач с группировкой"""
+        # Получаем типы задач
+        task_types = self.task_manager.db.get_task_types()
+        type_map = {t.id: t for t in task_types}
+        
         # Разделяем задачи на активные и выполненные
-        active_tasks = [t for t in tasks if not t.is_completed]
-        completed_tasks = [t for t in tasks if t.is_completed]
+        active_tasks = [t for t in tasks if not t.is_completed and t.quadrant == 0]
+        completed_tasks = [t for t in tasks if t.is_completed and t.quadrant == 0]
         
-        # Обновляем активные задачи
-        self._update_tab_tasks(self.active_scrollable_frame, active_tasks, is_completed=False)
+        # Группируем задачи по типам
+        active_groups = self._group_tasks_by_type(active_tasks, type_map)
+        completed_groups = self._group_tasks_by_type(completed_tasks, type_map)
         
-        # Обновляем выполненные задачи  
-        self._update_tab_tasks(self.completed_scrollable_frame, completed_tasks, is_completed=True)
+        # Обновляем вкладки
+        self._update_tab_with_groups(self.active_scrollable_frame, active_groups, "active")
+        self._update_tab_with_groups(self.completed_scrollable_frame, completed_groups, "completed")
         
         # Обновляем количество на вкладках
         self.notebook.tab(0, text=f"Активные ({len(active_tasks)})")
         self.notebook.tab(1, text=f"Выполненные ({len(completed_tasks)})")
     
-    def _update_tab_tasks(self, parent_frame, tasks, is_completed=False):
-        """Обновление задач в конкретной вкладке"""
+    def _group_tasks_by_type(self, tasks: List[Task], type_map: Dict[int, any]) -> Dict[str, List[Task]]:
+        """Группировка задач по типам"""
+        groups = {}
+        
+        for task in tasks:
+            task_type = type_map.get(task.task_type_id)
+            type_name = task_type.name if task_type else "Без типа"
+            
+            if type_name not in groups:
+                groups[type_name] = []
+            groups[type_name].append(task)
+        
+        return groups
+    
+    def _update_tab_with_groups(self, parent_frame, groups: Dict[str, List[Task]], tab_type: str):
+        """Обновление вкладки с группировкой задач"""
         # Очищаем текущие виджеты
         for widget in parent_frame.winfo_children():
             widget.destroy()
         
-        # Добавляем новые задачи
-        for task in tasks:
-            self._create_task_widget(parent_frame, task)
+        # Сохраняем ссылки на группы для данной вкладки
+        group_key = f"{tab_type}_groups"
+        if group_key not in self.group_widgets:
+            self.group_widgets[group_key] = {}
         
-        # Принудительное обновление интерфейса
-        parent_frame.update_idletasks()
+        # Если нет задач
+        if not groups:
+            empty_label = tk.Label(parent_frame, text="Нет задач", 
+                                  bg='white', fg='gray', font=('Arial', 10))
+            empty_label.pack(expand=True, pady=20)
+            return
+        
+        # Создаем группы
+        for type_name in sorted(groups.keys()):
+            tasks = groups[type_name]
+            if not tasks:  # Пропускаем пустые группы
+                continue
+            
+            # Создаем фрейм группы
+            group_frame = tk.Frame(parent_frame, bg='white')
+            group_frame.pack(fill='x', pady=(0, 5))
+            
+            # Заголовок группы
+            header_frame = tk.Frame(group_frame, bg='#E0E0E0', relief='solid', bd=1)
+            header_frame.pack(fill='x')
+            
+            # Кнопка сворачивания/разворачивания
+            state_key = f"{tab_type}_{type_name}"
+            if state_key not in self.group_states:
+                self.group_states[state_key] = True  # По умолчанию развернута
+            
+            is_expanded = self.group_states[state_key]
+            toggle_text = "▼" if is_expanded else "▶"
+            
+            toggle_btn = tk.Label(header_frame, text=toggle_text, 
+                                 bg='#E0E0E0', font=('Arial', 10),
+                                 cursor='hand2')
+            toggle_btn.pack(side='left', padx=(5, 0))
+            
+            # Название группы с количеством
+            group_label = tk.Label(header_frame, 
+                                  text=f"{type_name} ({len(tasks)})",
+                                  bg='#E0E0E0', font=('Arial', 10, 'bold'))
+            group_label.pack(side='left', padx=5)
+            
+            # Контейнер для задач
+            tasks_container = tk.Frame(group_frame, bg='white')
+            if is_expanded:
+                tasks_container.pack(fill='x', padx=(20, 0))
+            
+            # Добавляем задачи в контейнер
+            for task in tasks:
+                self._create_task_widget(tasks_container, task)
+            
+            # Привязываем обработчик сворачивания/разворачивания
+            def toggle_group(e, key=state_key, container=tasks_container):
+                self.group_states[key] = not self.group_states[key]
+                # Обновляем только эту группу
+                self._update_group_visibility(key, container, e.widget)
+            
+            toggle_btn.bind('<Button-1>', toggle_group)
+            group_label.bind('<Button-1>', toggle_group)
+            
+            # Сохраняем ссылки
+            self.group_widgets[group_key][type_name] = {
+                'frame': group_frame,
+                'container': tasks_container,
+                'toggle_btn': toggle_btn,
+                'expanded': is_expanded
+            }
     
-    def add_task(self, task: Task):
-        """Добавление одной задачи в список"""
-        # Определяем родительский фрейм
-        if task.is_completed:
-            parent_frame = self.completed_scrollable_frame
-        else:
-            parent_frame = self.active_scrollable_frame
+    def _update_group_visibility(self, state_key: str, container, toggle_widget):
+        """Обновление видимости группы"""
+        is_expanded = self.group_states[state_key]
         
-        self._create_task_widget(parent_frame, task)
+        if is_expanded:
+            container.pack(fill='x', padx=(20, 0))
+            toggle_widget.config(text="▼")
+        else:
+            container.pack_forget()
+            toggle_widget.config(text="▶")
     
     def _create_task_widget(self, parent_frame, task: Task):
         """Создание виджета задачи"""
@@ -173,15 +255,10 @@ class TaskListWidget:
                                  font=('Arial', 8))
             plan_label.pack(side='right', padx=2)
 
-        # Тип задачи
-        task_types = self.task_manager.db.get_task_types()
-        task_type = next((t for t in task_types if t.id == task.task_type_id), None)
-        type_name = task_type.name if task_type else "Без типа"
-
-        # Название с типом
-        title = f"{type_name} / {task.title}"
-        if len(title) > 30:
-            title = title[:27] + "..."
+        # Название
+        title = task.title
+        if len(title) > 25:
+            title = title[:22] + "..."
         
         if task.is_completed:
             title = f"✓ {title}"

@@ -255,12 +255,12 @@ class TaskManager:
         for task in tasks:
             quadrant_tasks[task.quadrant].append(task)
 
-        # Обновляем список задач (передаем все задачи из квадранта 0)
-        self.task_list_widget.update_tasks(quadrant_tasks[0])
+        # Обновляем список задач (передаем ВСЕ задачи для правильной группировки)
+        self.task_list_widget.update_tasks(tasks)
 
-        # Обновляем квадранты
+        # Обновляем квадранты (только задачи в квадрантах 1-4)
         self.quadrants_widget.update_quadrants(quadrant_tasks)
-
+        
     def select_task(self, task: Task):
         """Выбор задачи"""
         self.current_task = task
