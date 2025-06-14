@@ -331,6 +331,7 @@ class TaskListWidget:
     def move_selected_to_quadrant(self, quadrant: int):
         """Перемещение выбранной задачи в квадрант"""
         if self.selected_task:
+            self.close_context_menu()
             self.task_manager.move_task_to_quadrant(self.selected_task, quadrant)
 
     def move_selected_to_backlog(self):

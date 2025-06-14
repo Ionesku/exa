@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Панель деталей задачи
+Task Manager - Панель деталей задачи (исправленная версия)
 """
 
 import tkinter as tk
@@ -40,10 +40,14 @@ class TaskDetailPanel:
 
         # Содержание
         ttk.Label(left_frame, text="Содержание:").grid(row=1, column=0, sticky='nw', pady=2)
-        # Используем ttk.Entry с state='readonly' для единообразного вида с полем "Название"
-        self.content_var = tk.StringVar()
-        self.content_entry = ttk.Entry(left_frame, textvariable=self.content_var, state='readonly')
-        self.content_entry.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
+        # Фрейм для Text виджета
+        content_text_frame = ttk.Frame(left_frame)
+        content_text_frame.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
+        
+        # Используем Text widget для многострочного содержания
+        self.content_text = tk.Text(content_text_frame, height=3, width=40, state='disabled',
+                                   bg='#f0f0f0', relief='groove', bd=1)
+        self.content_text.pack(fill='both', expand=True)
 
         # Параметры
         params_frame = ttk.Frame(left_frame)
@@ -98,7 +102,12 @@ class TaskDetailPanel:
 
         if task:
             self.title_var.set(task.title)
-            self.content_var.set(task.content)
+            
+            # Обновляем Text widget
+            self.content_text.config(state='normal')
+            self.content_text.delete(1.0, tk.END)
+            self.content_text.insert(1.0, task.content)
+            self.content_text.config(state='disabled')
 
             self.importance_var.set(task.importance)
             self.priority_var.set(task.priority)
@@ -112,7 +121,11 @@ class TaskDetailPanel:
     def show_no_task(self):
         """Отображение пустого состояния"""
         self.title_var.set("")
-        self.content_var.set("")
+        
+        # Очищаем Text widget
+        self.content_text.config(state='normal')
+        self.content_text.delete(1.0, tk.END)
+        self.content_text.config(state='disabled')
 
         self.importance_var.set(1)
         self.priority_var.set(5)
@@ -132,15 +145,15 @@ class TaskDetailPanel:
         """Вход в режим редактирования"""
         self.is_editing = True
 
-        # Разблокируем поля (кроме содержания)
+        # Разблокируем поля
         self.title_entry.config(state='normal')
-        # self.content_text остается disabled
+        self.content_text.config(state='normal', bg='white')
         self.importance_spin.config(state='normal')
         self.priority_spin.config(state='normal')
         self.duration_spin.config(state='normal')
 
         # Меняем кнопки
-        self.edit_btn.config(text="Сохранить")
+        self.edit_btn.config(text="Сохранить", state='normal')
         self.save_btn.config(state='normal')
         self.cancel_btn.config(state='normal')
 
@@ -150,7 +163,7 @@ class TaskDetailPanel:
 
         # Блокируем поля
         self.title_entry.config(state='readonly')
-        self.content_text.config(state='disabled')
+        self.content_text.config(state='disabled', bg='#f0f0f0')
         self.importance_spin.config(state='readonly')
         self.priority_spin.config(state='readonly')
         self.duration_spin.config(state='readonly')
@@ -170,9 +183,9 @@ class TaskDetailPanel:
             messagebox.showwarning("Предупреждение", "Название не может быть пустым!")
             return
 
-        # Сохраняем изменения (кроме содержания - оно не редактируется)
+        # Сохраняем изменения
         self.current_task.title = self.title_var.get().strip()
-        # self.current_task.content не изменяется
+        self.current_task.content = self.content_text.get(1.0, tk.END).strip()
         self.current_task.importance = self.importance_var.get()
         self.current_task.priority = self.priority_var.get()
         self.current_task.duration = self.duration_var.get()

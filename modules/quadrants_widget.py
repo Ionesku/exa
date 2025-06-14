@@ -275,13 +275,8 @@ class QuadrantsWidget:
         if not self.selected_task:
             return
 
-        # Находим текущий квадрант
-        current_quadrant = None
-        for quad_id, quad_data in self.quadrants.items():
-            if self.selected_task in quad_data['tasks']:
-                current_quadrant = quad_id
-                quad_data['tasks'].remove(self.selected_task)
-                break
+        # Закрываем контекстное меню
+        self.close_context_menu()
 
         # Перемещаем задачу
         self.task_manager.move_task_to_quadrant(self.selected_task, target_quadrant)

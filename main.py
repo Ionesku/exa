@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Task Manager - Основной файл приложения (упрощенная версия)
+Task Manager - Основной файл приложения (исправленная версия)
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta, date
-from typing import Optional
+from typing import Optional, Dict, List
 
 # Импорт модулей
 from modules import (
@@ -33,6 +33,10 @@ class TaskManager:
         self.current_date = datetime.now().date()
         self.day_started = False
         self.day_start_time = None
+        
+        # Кеш для оптимизации
+        self.task_types_cache: List[TaskType] = []
+        self.last_types_update = None
 
         # Создание интерфейса
         self.setup_ui()
@@ -215,8 +219,6 @@ class TaskManager:
             self.task_detail_panel.show_task(self.current_task)
             messagebox.showinfo("Успех", "Задача обновлена!")
 
-
-
     def quick_save_task(self):
         """Быстрое сохранение текущей задачи"""
         if self.current_task:
@@ -260,7 +262,7 @@ class TaskManager:
 
         # Обновляем квадранты (только задачи в квадрантах 1-4)
         self.quadrants_widget.update_quadrants(quadrant_tasks)
-
+        
     def select_task(self, task: Task):
         """Выбор задачи"""
         self.current_task = task
@@ -275,8 +277,8 @@ class TaskManager:
             self.current_task.is_completed = completed
             self.task_detail_panel.show_task(self.current_task)
 
-        # Обновляем список задач с небольшой задержкой
-        self.root.after(100, self.refresh_task_list)
+        # Обновляем только список задач
+        self.refresh_task_list()
 
     def move_task_to_quadrant(self, task: Task, quadrant: int):
         """Перемещение задачи в квадрант"""
@@ -302,8 +304,8 @@ class TaskManager:
             self.current_task = task
             self.task_detail_panel.show_task(task)
         
-        # Обновляем весь интерфейс
-        self.refresh_all()
+        # Обновляем интерфейс
+        self.refresh_task_list()
 
     def move_task_to_backlog(self, task: Task):
         """Перемещение задачи в бэклог"""
@@ -313,7 +315,7 @@ class TaskManager:
         task.quadrant = 0
 
         self.db.save_task(task)
-        # Обновляем только список
+        # Обновляем интерфейс
         self.refresh_task_list()
 
     # Управление днем
@@ -342,7 +344,7 @@ class TaskManager:
                 self.current_date += timedelta(days=1)
 
                 self.day_btn.config(text="Начать день")
-                # Обновляем только список
+                # Обновляем интерфейс
                 self.refresh_task_list()
 
                 messagebox.showinfo("День завершен", f"День завершен в {end_time.strftime('%H:%M')}")
@@ -424,6 +426,18 @@ class TaskManager:
             self.datetime_label.config(text=f"{date_str} (просмотр)")
 
         self.root.after(1000, self.update_datetime)
+
+    def get_task_types(self, force_refresh: bool = False) -> List[TaskType]:
+        """Получение типов задач с кешированием"""
+        if force_refresh or not self.task_types_cache:
+            self.task_types_cache = self.db.get_task_types()
+        return self.task_types_cache
+
+    def refresh_all(self):
+        """Полное обновление интерфейса"""
+        self.refresh_task_list()
+        if hasattr(self, 'analytics_tree'):
+            self.update_analytics()
 
     def load_data(self):
         """Загрузка данных при запуске"""
