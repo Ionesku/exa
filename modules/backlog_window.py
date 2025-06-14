@@ -1,321 +1,485 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Окно бэклога с улучшенной прокруткой
+Task Manager - Оптимизированное окно бэклога
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import List, Dict
+from typing import List, Dict, Optional
+from datetime import datetime
+import logging
 
 from .task_models import Task
 from .task_edit_dialog import TaskEditDialog
-from .utils import TaskUtils, DateUtils, truncate_text
-from .colors import get_priority_color
+from .colors import get_priority_color, get_completed_color, UI_COLORS
+from .utils import TaskUtils, truncate_text
+
+logger = logging.getLogger(__name__)
 
 
 class BacklogWindow:
-    """Окно для управления бэклогом задач"""
+    """Оптимизированное окно бэклога с эффективным использованием пространства"""
 
     def __init__(self, parent, db_manager, task_manager):
         self.parent = parent
         self.db = db_manager
         self.task_manager = task_manager
-        self.selected_task = None
-        self.task_groups = {}
-
+        self.selected_task: Optional[Task] = None
+        self.current_filter = "all"
+        self.search_var = tk.StringVar()
+        
+        # Кеш для задач
+        self.all_tasks: List[Task] = []
+        self.filtered_tasks: List[Task] = []
+        
         # Создание окна
         self.window = tk.Toplevel(parent)
         self.window.title("Бэклог задач")
-        self.window.geometry("800x600")
+        self.window.geometry("900x600")
         self.window.transient(parent)
-
+        
         self.setup_ui()
-        self.setup_context_menu()
-        self.load_backlog_tasks()
+        self.load_tasks()
 
     def setup_ui(self):
-        """Создание интерфейса окна бэклога с прокруткой"""
-        # Верхняя панель
-        top_frame = ttk.Frame(self.window)
-        top_frame.pack(fill='x', padx=10, pady=(10, 5))
-
-        ttk.Label(top_frame, text="Бэклог задач", 
-                  font=('Arial', 14, 'bold')).pack(side='left')
-
-        ttk.Button(top_frame, text="Обновить",
-                   command=self.load_backlog_tasks).pack(side='right', padx=(5, 0))
-
-        ttk.Button(top_frame, text="Новая задача",
-                   command=self.create_new_task).pack(side='right')
-
-        # Фрейм для прокрутки
-        scroll_frame = tk.Frame(self.window)
-        scroll_frame.pack(fill='both', expand=True, padx=10, pady=(5, 10))
-
-        # Canvas для прокрутки
-        self.canvas = tk.Canvas(scroll_frame, bg='white', highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(scroll_frame, orient='vertical', command=self.canvas.yview)
-
-        # Контейнер для групп
-        self.groups_container = ttk.Frame(self.canvas)
+        """Создание оптимизированного интерфейса"""
+        # Главный контейнер
+        main_container = ttk.PanedWindow(self.window, orient='horizontal')
+        main_container.pack(fill='both', expand=True, padx=5, pady=5)
         
-        # Окно в canvas
-        self.canvas_window = self.canvas.create_window((0, 0), window=self.groups_container, anchor="nw")
+        # Левая панель - фильтры и группы
+        left_panel = ttk.Frame(main_container)
+        main_container.add(left_panel, weight=1)
+        self.setup_left_panel(left_panel)
         
-        # Настройка прокрутки
-        self.groups_container.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
+        # Правая панель - список задач
+        right_panel = ttk.Frame(main_container)
+        main_container.add(right_panel, weight=3)
+        self.setup_right_panel(right_panel)
         
-        self.canvas.bind(
-            "<Configure>",
-            lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width)
-        )
+        # Нижняя панель - статус и кнопки
+        bottom_panel = ttk.Frame(self.window)
+        bottom_panel.pack(fill='x', side='bottom', padx=5, pady=(0, 5))
+        self.setup_bottom_panel(bottom_panel)
+
+    def setup_left_panel(self, parent):
+        """Настройка левой панели с фильтрами"""
+        # Заголовок
+        ttk.Label(parent, text="Фильтры", font=('Arial', 12, 'bold')).pack(pady=(5, 10))
         
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        # Поиск
+        search_frame = ttk.Frame(parent)
+        search_frame.pack(fill='x', padx=5, pady=(0, 10))
+        
+        ttk.Label(search_frame, text="Поиск:").pack(anchor='w')
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+        search_entry.pack(fill='x', pady=2)
+        search_entry.bind('<KeyRelease>', lambda e: self.apply_filters())
+        
+        # Разделитель
+        ttk.Separator(parent, orient='horizontal').pack(fill='x', pady=10)
+        
+        # Группы по типам
+        ttk.Label(parent, text="Типы задач", font=('Arial', 10, 'bold')).pack(pady=(0, 5))
+        
+        # Фрейм для типов с прокруткой
+        types_frame = ttk.Frame(parent)
+        types_frame.pack(fill='both', expand=True, padx=5)
+        
+        # Canvas для прокрутки типов
+        self.types_canvas = tk.Canvas(types_frame, bg='white', highlightthickness=0)
+        types_scrollbar = ttk.Scrollbar(types_frame, orient='vertical', command=self.types_canvas.yview)
+        
+        self.types_list_frame = ttk.Frame(self.types_canvas)
+        self.types_canvas_window = self.types_canvas.create_window((0, 0), window=self.types_list_frame, anchor="nw")
+        
+        self.types_list_frame.bind('<Configure>', 
+            lambda e: self.types_canvas.configure(scrollregion=self.types_canvas.bbox("all")))
+        
+        self.types_canvas.bind('<Configure>',
+            lambda e: self.types_canvas.itemconfig(self.types_canvas_window, width=e.width))
+        
+        self.types_canvas.configure(yscrollcommand=types_scrollbar.set)
+        
+        self.types_canvas.pack(side="left", fill="both", expand=True)
+        types_scrollbar.pack(side="right", fill="y")
+        
+        # Кнопки управления
+        buttons_frame = ttk.Frame(parent)
+        buttons_frame.pack(fill='x', pady=10)
+        
+        ttk.Button(buttons_frame, text="Все задачи", 
+                  command=lambda: self.filter_by_type("all")).pack(fill='x', pady=2)
+        
+        ttk.Button(buttons_frame, text="Без типа",
+                  command=lambda: self.filter_by_type(None)).pack(fill='x', pady=2)
+
+    def setup_right_panel(self, parent):
+        """Настройка правой панели со списком задач"""
+        # Верхняя панель с информацией
+        top_frame = ttk.Frame(parent)
+        top_frame.pack(fill='x', padx=5, pady=5)
+        
+        self.tasks_info_label = ttk.Label(top_frame, text="Всего задач: 0", 
+                                         font=('Arial', 10, 'bold'))
+        self.tasks_info_label.pack(side='left')
+        
+        # Кнопки сортировки
+        sort_frame = ttk.Frame(top_frame)
+        sort_frame.pack(side='right')
+        
+        ttk.Label(sort_frame, text="Сортировка:").pack(side='left', padx=(0, 5))
+        
+        self.sort_var = tk.StringVar(value="priority")
+        sort_combo = ttk.Combobox(sort_frame, textvariable=self.sort_var,
+                                 values=["priority", "importance", "title", "type"],
+                                 state='readonly', width=15)
+        sort_combo.pack(side='left')
+        sort_combo.bind('<<ComboboxSelected>>', lambda e: self.sort_tasks())
+        
+        # Список задач с использованием Treeview для компактности
+        list_frame = ttk.Frame(parent)
+        list_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        # Создаем Treeview
+        columns = ('type', 'importance', 'priority', 'duration')
+        self.tasks_tree = ttk.Treeview(list_frame, columns=columns, show='tree headings', height=20)
+        
+        # Настройка колонок
+        self.tasks_tree.heading('#0', text='Задача')
+        self.tasks_tree.heading('type', text='Тип')
+        self.tasks_tree.heading('importance', text='В')
+        self.tasks_tree.heading('priority', text='С')
+        self.tasks_tree.heading('duration', text='Время')
+        
+        # Ширина колонок
+        self.tasks_tree.column('#0', width=400, stretch=True)
+        self.tasks_tree.column('type', width=100)
+        self.tasks_tree.column('importance', width=40, anchor='center')
+        self.tasks_tree.column('priority', width=40, anchor='center')
+        self.tasks_tree.column('duration', width=60, anchor='center')
+        
+        # Scrollbars
+        y_scroll = ttk.Scrollbar(list_frame, orient='vertical', command=self.tasks_tree.yview)
+        x_scroll = ttk.Scrollbar(list_frame, orient='horizontal', command=self.tasks_tree.xview)
+        self.tasks_tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
         
         # Размещение
-        self.canvas.pack(side="left", fill="both", expand=True)
+        self.tasks_tree.grid(row=0, column=0, sticky='nsew')
+        y_scroll.grid(row=0, column=1, sticky='ns')
+        x_scroll.grid(row=1, column=0, sticky='ew')
         
-        # Динамическое отображение scrollbar
-        def check_scrollbar(event=None):
-            self.canvas.update_idletasks()
-            if self.groups_container.winfo_reqheight() > self.canvas.winfo_height():
-                if not self.scrollbar.winfo_manager():
-                    self.scrollbar.pack(side="right", fill="y")
-            else:
-                if self.scrollbar.winfo_manager():
-                    self.scrollbar.pack_forget()
+        list_frame.grid_rowconfigure(0, weight=1)
+        list_frame.grid_columnconfigure(0, weight=1)
         
-        self.groups_container.bind("<Configure>", check_scrollbar)
-        self.canvas.bind("<Configure>", check_scrollbar)
+        # События
+        self.tasks_tree.bind('<Double-Button-1>', lambda e: self.move_to_today())
+        self.tasks_tree.bind('<Button-3>', self.show_context_menu)
+        self.tasks_tree.bind('<<TreeviewSelect>>', self.on_task_select)
         
-        # Прокрутка колесом мыши
-        def _on_mousewheel(event):
-            if self.groups_container.winfo_reqheight() > self.canvas.winfo_height():
-                self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        # Создаем теги для цветов
+        for i in range(1, 11):
+            color = get_priority_color(i)
+            self.tasks_tree.tag_configure(f'priority_{i}', foreground=color)
         
-        def _on_enter(event):
-            self.canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows
-            self.canvas.bind_all("<Button-4>", lambda e: self.canvas.yview_scroll(-1, "units"))  # Linux up
-            self.canvas.bind_all("<Button-5>", lambda e: self.canvas.yview_scroll(1, "units"))  # Linux down
-        
-        def _on_leave(event):
-            self.canvas.unbind_all("<MouseWheel>")
-            self.canvas.unbind_all("<Button-4>")
-            self.canvas.unbind_all("<Button-5>")
-        
-        self.canvas.bind("<Enter>", _on_enter)
-        self.canvas.bind("<Leave>", _on_leave)
+        # Контекстное меню
+        self.setup_context_menu()
 
-        # Статус бар
-        self.status_label = ttk.Label(self.window, text="", relief='sunken')
-        self.status_label.pack(fill='x', side='bottom')
+    def setup_bottom_panel(self, parent):
+        """Настройка нижней панели"""
+        # Левая часть - статус
+        self.status_label = ttk.Label(parent, text="", font=('Arial', 9))
+        self.status_label.pack(side='left')
+        
+        # Правая часть - кнопки
+        buttons_frame = ttk.Frame(parent)
+        buttons_frame.pack(side='right')
+        
+        ttk.Button(buttons_frame, text="Новая задача",
+                  command=self.create_new_task).pack(side='left', padx=2)
+        
+        ttk.Button(buttons_frame, text="На сегодня",
+                  command=self.move_to_today).pack(side='left', padx=2)
+        
+        ttk.Button(buttons_frame, text="Редактировать",
+                  command=self.edit_task).pack(side='left', padx=2)
+        
+        ttk.Button(buttons_frame, text="Удалить",
+                  command=self.delete_task).pack(side='left', padx=2)
+        
+        ttk.Button(buttons_frame, text="Обновить",
+                  command=self.load_tasks).pack(side='left', padx=2)
 
     def setup_context_menu(self):
         """Создание контекстного меню"""
         self.context_menu = tk.Menu(self.window, tearoff=0)
         self.context_menu.add_command(label="Переместить на сегодня",
-                                      command=self.move_to_today)
-        self.context_menu.add_command(label="Переместить на дату...",
-                                      command=self.move_to_date)
+                                     command=self.move_to_today)
+        self.context_menu.add_command(label="Переместить на завтра",
+                                     command=self.move_to_tomorrow)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Редактировать",
-                                      command=self.edit_task)
+                                     command=self.edit_task)
+        self.context_menu.add_command(label="Дублировать",
+                                     command=self.duplicate_task)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Удалить",
-                                      command=self.delete_task)
+                                     command=self.delete_task)
 
-    def load_backlog_tasks(self):
-        """Загрузка задач из бэклога"""
-        # Очистка текущего содержимого
-        for widget in self.groups_container.winfo_children():
+    def load_tasks(self):
+        """Загрузка всех задач из бэклога"""
+        # Получаем все задачи
+        all_tasks = self.db.get_tasks(include_backlog=True)
+        self.all_tasks = [t for t in all_tasks if not t.date_scheduled]
+        
+        # Обновляем список типов
+        self.update_types_list()
+        
+        # Применяем фильтры
+        self.apply_filters()
+
+    def update_types_list(self):
+        """Обновление списка типов в левой панели"""
+        # Очищаем текущий список
+        for widget in self.types_list_frame.winfo_children():
             widget.destroy()
-
-        # Получение задач из бэклога
-        tasks = self.db.get_tasks(include_backlog=True)
-        backlog_tasks = [t for t in tasks if not t.date_scheduled]
-
-        if not backlog_tasks:
-            # Показываем сообщение о пустом бэклоге
-            empty_label = ttk.Label(self.groups_container,
-                                    text="Бэклог пуст",
-                                    font=('Arial', 12))
-            empty_label.pack(expand=True, pady=50)
-            self.update_status(0)
-            return
-
-        # Группировка задач
+        
+        # Получаем типы и считаем задачи
         task_types = self.db.get_task_types()
-        grouped_tasks = TaskUtils.group_tasks_by_type(backlog_tasks, task_types)
+        type_counts = {}
+        
+        for task in self.all_tasks:
+            type_id = task.task_type_id
+            if type_id in type_counts:
+                type_counts[type_id] += 1
+            else:
+                type_counts[type_id] = 1
+        
+        # Создаем кнопки для каждого типа
+        for task_type in task_types:
+            count = type_counts.get(task_type.id, 0)
+            if count > 0:
+                btn_frame = tk.Frame(self.types_list_frame)
+                btn_frame.pack(fill='x', pady=1)
+                
+                # Цветной индикатор
+                color_label = tk.Label(btn_frame, text="●", fg=task_type.color,
+                                      font=('Arial', 12))
+                color_label.pack(side='left', padx=(5, 0))
+                
+                # Кнопка с названием и количеством
+                btn = tk.Button(btn_frame, 
+                               text=f"{task_type.name} ({count})",
+                               relief='flat',
+                               anchor='w',
+                               command=lambda t=task_type: self.filter_by_type(t))
+                btn.pack(side='left', fill='x', expand=True)
+                
+                # Подсветка при наведении
+                btn.bind('<Enter>', lambda e, b=btn: b.config(relief='raised'))
+                btn.bind('<Leave>', lambda e, b=btn: b.config(relief='flat'))
 
-        # Создание групп
-        for type_name, tasks in grouped_tasks.items():
-            self.create_group(type_name, tasks)
+    def filter_by_type(self, task_type):
+        """Фильтрация по типу задачи"""
+        if task_type == "all":
+            self.current_filter = "all"
+        elif task_type is None:
+            self.current_filter = None
+        else:
+            self.current_filter = task_type.id
+        
+        self.apply_filters()
 
-        self.update_status(len(backlog_tasks))
+    def apply_filters(self):
+        """Применение всех фильтров"""
+        # Начинаем со всех задач
+        self.filtered_tasks = self.all_tasks.copy()
+        
+        # Фильтр по типу
+        if self.current_filter != "all":
+            if self.current_filter is None:
+                self.filtered_tasks = [t for t in self.filtered_tasks if t.task_type_id == 0]
+            else:
+                self.filtered_tasks = [t for t in self.filtered_tasks if t.task_type_id == self.current_filter]
+        
+        # Фильтр по поиску
+        search_text = self.search_var.get().lower()
+        if search_text:
+            self.filtered_tasks = [t for t in self.filtered_tasks 
+                                 if search_text in t.title.lower() or 
+                                    search_text in t.content.lower()]
+        
+        # Сортировка
+        self.sort_tasks()
+        
+        # Обновляем отображение
+        self.update_tasks_display()
 
-    def create_group(self, type_name: str, tasks: List[Task]):
-        """Создание группы задач"""
-        # Фрейм группы
-        group_frame = ttk.LabelFrame(self.groups_container,
-                                     text=f"{type_name} ({len(tasks)})")
-        group_frame.pack(fill='x', pady=5)
+    def sort_tasks(self):
+        """Сортировка задач"""
+        sort_by = self.sort_var.get()
+        
+        if sort_by == "priority":
+            self.filtered_tasks.sort(key=lambda t: t.priority, reverse=True)
+        elif sort_by == "importance":
+            self.filtered_tasks.sort(key=lambda t: t.importance, reverse=True)
+        elif sort_by == "title":
+            self.filtered_tasks.sort(key=lambda t: t.title.lower())
+        elif sort_by == "type":
+            self.filtered_tasks.sort(key=lambda t: t.task_type_id)
+        
+        self.update_tasks_display()
 
-        # Контейнер для задач
-        tasks_frame = ttk.Frame(group_frame)
-        tasks_frame.pack(fill='x', padx=5, pady=5)
+    def update_tasks_display(self):
+        """Обновление отображения задач в дереве"""
+        # Очищаем дерево
+        for item in self.tasks_tree.get_children():
+            self.tasks_tree.delete(item)
+        
+        # Получаем типы для отображения
+        task_types = {t.id: t for t in self.db.get_task_types()}
+        
+        # Добавляем задачи
+        for task in self.filtered_tasks:
+            # Определяем тип
+            task_type = task_types.get(task.task_type_id)
+            type_name = task_type.name if task_type else "Без типа"
+            
+            # Длительность
+            duration = f"{task.duration}м" if task.has_duration else "-"
+            
+            # Вставляем в дерево
+            item = self.tasks_tree.insert('', 'end',
+                                        text=task.title,
+                                        values=(type_name, task.importance, task.priority, duration),
+                                        tags=(f'priority_{task.priority}',))
+            
+            # Сохраняем ссылку на задачу
+            self.tasks_tree.set(item, 'task_id', task.id)
+        
+        # Обновляем информацию
+        self.tasks_info_label.config(text=f"Показано задач: {len(self.filtered_tasks)} из {len(self.all_tasks)}")
+        self.update_status()
 
-        # Создание виджетов задач
-        for task in tasks:
-            self.create_task_widget(tasks_frame, task)
+    def on_task_select(self, event):
+        """Обработка выбора задачи"""
+        selection = self.tasks_tree.selection()
+        if selection:
+            item = selection[0]
+            task_id = self.tasks_tree.set(item, 'task_id')
+            if task_id:
+                self.selected_task = next((t for t in self.all_tasks if t.id == int(task_id)), None)
+                self.update_status()
 
-    def create_task_widget(self, parent_frame, task: Task):
-        """Создание виджета для одной задачи"""
-        # Фрейм задачи
-        task_frame = tk.Frame(parent_frame,
-                              bg=get_priority_color(task.priority),
-                              relief='raised', bd=1,
-                              cursor='hand2')
-        task_frame.pack(fill='x', pady=2)
-
-        # Информация о задаче
-        info_frame = tk.Frame(task_frame, bg=task_frame['bg'])
-        info_frame.pack(fill='x', padx=5, pady=3)
-
-        # Название
-        title_label = tk.Label(info_frame,
-                               text=truncate_text(task.title, 50),
-                               bg=task_frame['bg'],
-                               fg='white',
-                               font=('Arial', 10, 'bold'),
-                               anchor='w')
-        title_label.pack(fill='x')
-
-        # Дополнительная информация
-        info_text = f"Важность: {task.importance} | Срочность: {task.priority}"
-        if task.has_duration:
-            info_text += f" | Длительность: {task.duration}м"
-
-        detail_label = tk.Label(info_frame,
-                                text=info_text,
-                                bg=task_frame['bg'],
-                                fg='white',
-                                font=('Arial', 8),
-                                anchor='w')
-        detail_label.pack(fill='x')
-
-        # События
-        task_frame.bind("<Button-1>", lambda e: self.select_task(task))
-        task_frame.bind("<Double-Button-1>", lambda e: self.move_to_today())
-        task_frame.bind("<Button-3>", lambda e: self.show_context_menu(e, task))
-
-        title_label.bind("<Button-1>", lambda e: self.select_task(task))
-        title_label.bind("<Double-Button-1>", lambda e: self.move_to_today())
-        title_label.bind("<Button-3>", lambda e: self.show_context_menu(e, task))
-
-    def select_task(self, task: Task):
-        """Выбор задачи"""
-        self.selected_task = task
-
-    def show_context_menu(self, event, task: Task):
+    def show_context_menu(self, event):
         """Показ контекстного меню"""
-        self.selected_task = task
-        self.context_menu.post(event.x_root, event.y_root)
+        # Выбираем элемент под курсором
+        item = self.tasks_tree.identify_row(event.y)
+        if item:
+            self.tasks_tree.selection_set(item)
+            self.on_task_select(None)
+            self.context_menu.post(event.x_root, event.y_root)
 
     def move_to_today(self):
         """Перемещение задачи на сегодня"""
         if not self.selected_task:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для перемещения")
             return
-
-        self.selected_task.date_scheduled = DateUtils.today_iso()
+        
+        self.selected_task.date_scheduled = datetime.now().date().isoformat()
         self.db.save_task(self.selected_task)
+        
+        # Удаляем из списка
+        self.all_tasks.remove(self.selected_task)
+        self.apply_filters()
+        
+        # Обновляем основное окно
+        if hasattr(self.task_manager, 'refresh_ui'):
+            self.task_manager.refresh_ui()
+        
+        messagebox.showinfo("Успех", f"Задача '{self.selected_task.title}' перемещена на сегодня")
 
-        self.load_backlog_tasks()
-        if hasattr(self.task_manager, 'refresh_task_list'):
-            self.task_manager.refresh_task_list()
-
-        messagebox.showinfo("Успех",
-                            f"Задача '{self.selected_task.title}' перемещена на сегодня")
-
-    def move_to_date(self):
-        """Перемещение задачи на выбранную дату"""
+    def move_to_tomorrow(self):
+        """Перемещение задачи на завтра"""
         if not self.selected_task:
             return
-
-        # Создаем диалог выбора даты
-        date_dialog = tk.Toplevel(self.window)
-        date_dialog.title("Выбор даты")
-        date_dialog.geometry("300x150")
-        date_dialog.transient(self.window)
-
-        ttk.Label(date_dialog, text="Выберите дату:").pack(pady=10)
-
-        # Календарь или простое поле ввода
-        date_var = tk.StringVar(value=DateUtils.today_str())
-        date_entry = ttk.Entry(date_dialog, textvariable=date_var)
-        date_entry.pack(pady=5)
-
-        ttk.Label(date_dialog, text="Формат: ДД.ММ.ГГГГ",
-                  font=('Arial', 8)).pack()
-
-        def save_date():
-            try:
-                date_str = date_var.get()
-                # Преобразуем в ISO формат
-                date_iso = DateUtils.to_iso_format(date_str)
-                
-                self.selected_task.date_scheduled = date_iso
-                self.db.save_task(self.selected_task)
-
-                date_dialog.destroy()
-                self.load_backlog_tasks()
-                
-                if hasattr(self.task_manager, 'refresh_task_list'):
-                    self.task_manager.refresh_task_list()
-
-                messagebox.showinfo("Успех",
-                                    f"Задача перемещена на {date_str}")
-            except Exception as e:
-                messagebox.showerror("Ошибка",
-                                     f"Неверный формат даты: {str(e)}")
-
-        ttk.Button(date_dialog, text="Сохранить",
-                   command=save_date).pack(pady=10)
-
-        date_dialog.grab_set()
+        
+        from datetime import timedelta
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        
+        self.selected_task.date_scheduled = tomorrow
+        self.db.save_task(self.selected_task)
+        
+        self.all_tasks.remove(self.selected_task)
+        self.apply_filters()
+        
+        messagebox.showinfo("Успех", f"Задача '{self.selected_task.title}' перемещена на завтра")
 
     def edit_task(self):
         """Редактирование задачи"""
         if not self.selected_task:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для редактирования")
             return
-
+        
         dialog = TaskEditDialog(self.window, self.task_manager, self.selected_task)
         if dialog.result:
-            self.load_backlog_tasks()
+            self.load_tasks()
+
+    def duplicate_task(self):
+        """Дублирование задачи"""
+        if not self.selected_task:
+            return
+        
+        # Создаем копию
+        new_task = Task(
+            title=f"{self.selected_task.title} (копия)",
+            content=self.selected_task.content,
+            importance=self.selected_task.importance,
+            priority=self.selected_task.priority,
+            task_type_id=self.selected_task.task_type_id,
+            has_duration=self.selected_task.has_duration,
+            duration=self.selected_task.duration,
+            date_scheduled=""  # В бэклог
+        )
+        
+        self.db.save_task(new_task)
+        self.load_tasks()
+        
+        messagebox.showinfo("Успех", "Задача продублирована")
 
     def delete_task(self):
         """Удаление задачи"""
         if not self.selected_task:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для удаления")
             return
-
-        if messagebox.askyesno("Подтверждение",
-                               f"Удалить задачу '{self.selected_task.title}'?"):
+        
+        if messagebox.askyesno("Подтверждение", 
+                              f"Удалить задачу '{self.selected_task.title}'?"):
             self.db.delete_task(self.selected_task.id)
-            self.load_backlog_tasks()
-            messagebox.showinfo("Успех", "Задача удалена")
+            self.all_tasks.remove(self.selected_task)
+            self.selected_task = None
+            self.apply_filters()
 
     def create_new_task(self):
         """Создание новой задачи в бэклоге"""
-        # Создаем задачу без даты
-        task = Task()
-        task.date_scheduled = ""  # Пустая дата = бэклог
+        new_task = Task()
+        new_task.date_scheduled = ""  # Пустая дата = бэклог
         
-        dialog = TaskEditDialog(self.window, self.task_manager, task)
+        dialog = TaskEditDialog(self.window, self.task_manager, new_task)
         if dialog.result:
-            self.load_backlog_tasks()
+            self.load_tasks()
 
-    def update_status(self, count: int):
+    def update_status(self):
         """Обновление статусной строки"""
-        self.status_label.config(text=f"Всего задач в бэклоге: {count}")
+        if self.selected_task:
+            task_types = {t.id: t for t in self.db.get_task_types()}
+            task_type = task_types.get(self.selected_task.task_type_id)
+            type_name = task_type.name if task_type else "Без типа"
+            
+            status = f"Выбрана: {truncate_text(self.selected_task.title, 30)} | "
+            status += f"Тип: {type_name} | "
+            status += f"В: {self.selected_task.importance} | С: {self.selected_task.priority}"
+            
+            self.status_label.config(text=status)
+        else:
+            self.status_label.config(text=f"Всего задач в бэклоге: {len(self.all_tasks)}")
