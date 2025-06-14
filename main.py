@@ -255,7 +255,11 @@ class TaskManager:
         quadrant_tasks = {0: [], 1: [], 2: [], 3: [], 4: []}
         
         for task in tasks:
+            if task.is_completed:
+                # Completed tasks отображаются только в списке
+                quadrant_tasks[0].append(task)
             quadrant_tasks[task.quadrant].append(task)
+            
 
         # Добавляем в список (квадрант 0) - разделяем активные и выполненные
         for task in quadrant_tasks[0]:
