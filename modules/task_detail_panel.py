@@ -134,9 +134,9 @@ class TaskDetailPanel:
         """Вход в режим редактирования"""
         self.is_editing = True
 
-        # Разблокируем поля
+        # Разблокируем поля (кроме содержания)
         self.title_entry.config(state='normal')
-        self.content_text.config(state='normal')
+        # self.content_text остается disabled
         self.importance_spin.config(state='normal')
         self.priority_spin.config(state='normal')
         self.duration_spin.config(state='normal')
@@ -172,9 +172,9 @@ class TaskDetailPanel:
             messagebox.showwarning("Предупреждение", "Название не может быть пустым!")
             return
 
-        # Сохраняем изменения
+        # Сохраняем изменения (кроме содержания - оно не редактируется)
         self.current_task.title = self.title_var.get().strip()
-        self.current_task.content = self.content_text.get(1.0, tk.END).strip()
+        # self.current_task.content не изменяется
         self.current_task.importance = self.importance_var.get()
         self.current_task.priority = self.priority_var.get()
         self.current_task.duration = self.duration_var.get()

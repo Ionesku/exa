@@ -165,7 +165,11 @@ class BacklogWindow:
     def create_backlog_task(self):
         """Создание новой задачи в бэклог"""
         if self.task_manager:
-            dialog = TaskEditDialog(self.window, self.task_manager)
+            # Создаем новую задачу с пустой датой (для бэклога)
+            new_task = Task()
+            new_task.date_scheduled = ""  # Пустая дата означает бэклог
+            
+            dialog = TaskEditDialog(self.window, self.task_manager, new_task)
             if dialog.result:
                 self.window.destroy()
                 # Перезапускаем окно бэклога

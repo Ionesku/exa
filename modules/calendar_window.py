@@ -10,6 +10,7 @@ from datetime import datetime, date
 from typing import List
 from .task_models import Task
 from .task_edit_dialog import TaskEditDialog
+from tkinter import font as tkFont 
 
 
 class CalendarWindow:
@@ -177,8 +178,8 @@ class CalendarWindow:
         # Получение календаря месяца
         cal = calendar.monthcalendar(self.current_date.year, self.current_date.month)
 
-        # Создание кнопок дней
-        for week_num, week in enumerate(cal, start=1):
+        # Создание кнопок дней для всех недель
+        for week_num, week in enumerate(cal):
             for day_num, day in enumerate(week):
                 if day == 0:
                     continue
@@ -193,10 +194,10 @@ class CalendarWindow:
                     text=str(day),
                     command=lambda d=day_date: self.select_date(d),
                     width=8, height=3,
-                    font=('Arial', 10),
                     **style
                 )
-                day_btn.grid(row=week_num, column=day_num, sticky='nsew', padx=1, pady=1)
+                # Смещаем на 1, так как строка 0 - заголовки
+                day_btn.grid(row=week_num + 1, column=day_num, sticky='nsew', padx=1, pady=1)
 
                 # Добавляем информацию о задачах
                 tasks = self.get_tasks_for_date(day_date)
@@ -304,7 +305,7 @@ class CalendarWindow:
     def create_task_for_date(self):
         """Создание задачи для выбранной даты"""
         if self.task_manager:
-            # Создаем новую задачу
+            # Создаем новую задачу для выбранной даты
             new_task = Task()
             new_task.date_scheduled = self.selected_date.isoformat()
 

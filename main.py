@@ -257,7 +257,7 @@ class TaskManager:
         for task in tasks:
             quadrant_tasks[task.quadrant].append(task)
 
-        # Добавляем в список (квадрант 0)
+        # Добавляем в список (квадрант 0) - разделяем активные и выполненные
         for task in quadrant_tasks[0]:
             self.task_list_widget.add_task(task)
 
@@ -321,10 +321,11 @@ class TaskManager:
         """Начало планирования дня"""
         if not self.day_started:
             self.day_started = True
-            self.day_start_time = datetime.now().time()
+            self.day_start_time = datetime.now()
 
             start_hour = self.day_start_time.hour
-            self.quadrants_widget.update_time_labels(start_hour)
+            start_minute = self.day_start_time.minute
+            self.quadrants_widget.update_time_labels(start_hour, start_minute)
 
             self.day_btn.config(text="Завершить день")
             messagebox.showinfo("День начат", f"День начат в {self.day_start_time.strftime('%H:%M')}")

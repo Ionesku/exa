@@ -23,21 +23,18 @@ class TaskListWidget:
         """Создание контекстного меню"""
         self.context_menu = tk.Menu(self.task_manager.root, tearoff=0)
         
-        # Подменю для перемещения
-        move_menu = tk.Menu(self.context_menu, tearoff=0)
-        self.context_menu.add_cascade(label="Переместить", menu=move_menu)
-        
-        move_menu.add_command(label="В первый квадрант", 
-                             command=lambda: self.move_selected_to_quadrant(1))
-        move_menu.add_command(label="Во второй квадрант", 
-                             command=lambda: self.move_selected_to_quadrant(2))
-        move_menu.add_command(label="В третий квадрант", 
-                             command=lambda: self.move_selected_to_quadrant(3))
-        move_menu.add_command(label="В четвертый квадрант", 
-                             command=lambda: self.move_selected_to_quadrant(4))
-        move_menu.add_separator()
-        move_menu.add_command(label="В бэклог", 
-                             command=self.move_selected_to_backlog)
+        # Прямые опции перемещения без вложенности
+        self.context_menu.add_command(label="В первый квадрант", 
+                                     command=lambda: self.move_selected_to_quadrant(1))
+        self.context_menu.add_command(label="Во второй квадрант", 
+                                     command=lambda: self.move_selected_to_quadrant(2))
+        self.context_menu.add_command(label="В третий квадрант", 
+                                     command=lambda: self.move_selected_to_quadrant(3))
+        self.context_menu.add_command(label="В четвертый квадрант", 
+                                     command=lambda: self.move_selected_to_quadrant(4))
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="В бэклог", 
+                                     command=self.move_selected_to_backlog)
         
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Редактировать", command=self.edit_selected_task)
@@ -156,6 +153,13 @@ class TaskListWidget:
         """Показать контекстное меню"""
         self.selected_task = task
         self.task_manager.select_task(task)
+        
+        # Закрываем меню по правому клику
+        def close_menu(e):
+            self.context_menu.unpost()
+        
+        self.context_menu.bind("<Button-3>", close_menu)
+        
         try:
             self.context_menu.tk_popup(event.x_root, event.y_root)
         finally:

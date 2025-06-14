@@ -165,8 +165,25 @@ class TaskEditDialog:
                 except:
                     pass
         else:
-            last_choice = self.task_manager.db.get_setting("last_save_location", "Сегодня")
-            self.date_var.set(last_choice)
+            # Для новой задачи проверяем, есть ли предустановленная дата
+            if self.task.date_scheduled == "":
+                self.date_var.set("Бэклог")
+            elif self.task.date_scheduled:
+                # Если дата установлена, проверяем - это сегодня или другая
+                if self.task.date_scheduled == self.task_manager.current_date.isoformat():
+                    self.date_var.set("Сегодня")
+                else:
+                    self.date_var.set("Другая дата...")
+                    try:
+                        task_date = datetime.strptime(self.task.date_scheduled, '%Y-%m-%d').date()
+                        self.custom_date_var.set(task_date.strftime('%d.%m.%Y'))
+                        self.custom_date_entry.config(state='normal')
+                    except:
+                        pass
+            else:
+                # По умолчанию - последний выбор
+                last_choice = self.task_manager.db.get_setting("last_save_location", "Сегодня")
+                self.date_var.set(last_choice)
 
     def toggle_duration(self):
         """Переключение длительности"""
@@ -243,8 +260,9 @@ class TaskEditDialog:
         else:
             date_scheduled = self.task_manager.current_date.isoformat()
 
-        # Сохраняем выбор места
-        self.task_manager.db.save_setting("last_save_location", date_option)
+        # Сохраняем выбор места только если это не предустановленная дата
+        if self.task.id == 0 and not self.task.date_scheduled:
+            self.task_manager.db.save_setting("last_save_location", date_option)
 
         # Обновляем задачу
         self.task.title = self.title_var.get().strip()
