@@ -127,8 +127,11 @@ class TaskListWidget:
         type_map = {t.id: t for t in task_types}
         
         # Разделяем задачи
+        # Активные: НЕ выполненные и НЕ в квадрантах
         active_tasks = [t for t in tasks if not t.is_completed and t.quadrant == 0]
-        completed_tasks = [t for t in tasks if t.is_completed and t.quadrant == 0]
+        
+        # Выполненные: ВСЕ выполненные задачи (включая те, что в квадрантах)
+        completed_tasks = [t for t in tasks if t.is_completed]
         
         logger.debug(f"Active tasks: {len(active_tasks)}, Completed: {len(completed_tasks)}")
         
