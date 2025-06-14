@@ -420,12 +420,12 @@ class QuadrantsWidget(SmartUpdateMixin):
 
     def _on_quadrant_enter(self, event, quadrant: int):
         """Обработка входа в квадрант при перетаскивании"""
-        if self.drag_data["task"]:
+        if self.drag_data["task"] and self.drag_data["widget"]:
             self.quadrants[quadrant]['frame'].config(relief='groove', bd=4)
 
     def _on_quadrant_leave(self, event, quadrant: int):
         """Обработка выхода из квадранта при перетаскивании"""
-        if self.drag_data["task"]:
+        if self.drag_data["task"] and self.drag_data["widget"]:
             self.quadrants[quadrant]['frame'].config(relief='solid', bd=2)
 
     def _on_quadrant_drop(self, event, quadrant: int):
@@ -436,9 +436,14 @@ class QuadrantsWidget(SmartUpdateMixin):
             
             self.task_manager.move_task_to_quadrant(task, quadrant)
             
-            self.quadrants[quadrant]['frame'].config(relief='solid', bd=2)
+            # Сбрасываем визуальные эффекты только если была подсветка
+            if self.quadrants[quadrant]['frame']['relief'] == 'groove':
+                self.quadrants[quadrant]['frame'].config(relief='solid', bd=2)
         
+        # Очищаем данные перетаскивания
         self.drag_data["task"] = None
+        if self.drag_data["widget"]:
+            self.drag_data["widget"] = None
 
     def select_task(self, task: Task):
         """Выбор задачи"""
