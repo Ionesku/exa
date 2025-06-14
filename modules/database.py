@@ -5,7 +5,7 @@ Task Manager - Менеджер базы данных
 
 import sqlite3
 from typing import List
-from modules.task_models import Task, TaskType
+from .task_models import Task, TaskType
 
 
 class DatabaseManager:
@@ -30,7 +30,7 @@ class DatabaseManager:
             )
         ''')
 
-        # Таблица задач с добавлением has_duration
+        # Таблица задач
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

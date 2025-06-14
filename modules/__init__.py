@@ -6,37 +6,28 @@ Task Manager - Модули
 from modules.task_models import Task, TaskType
 from modules.database import DatabaseManager
 from modules.colors import get_priority_color, QUADRANT_COLORS, UI_COLORS
-from modules.ui_components import (
-    FullScreenQuadrantsWidget,
-    CompactTaskListWidget,
-    TaskEditDialog,
-    TaskTypeDialog,
-    TaskDetailPanel
-)
-from modules.calendar_manager import CalendarMixin
-from modules.drag_drop import DragDropMixin
-from modules.utils import (
-    DateUtils, DatabaseUtils, UIUtils, TaskUtils, ValidationUtils,
-    safe_int, safe_float, truncate_text
-)
+from modules.quadrants_widget import QuadrantsWidget
+from modules.task_list_widget import TaskListWidget
+from modules.task_detail_panel import TaskDetailPanel
+from modules.task_edit_dialog import TaskEditDialog
+from modules.task_type_dialog import TaskTypeDialog
+from modules.calendar_window import CalendarWindow
+from modules.utils import DateUtils, TaskUtils, truncate_text
 
 __all__ = [
     # Модели данных
     'Task', 'TaskType',
 
-    # Основные компоненты
+    # База данных
     'DatabaseManager',
 
-    # Цвета и стили
+    # Цвета
     'get_priority_color', 'QUADRANT_COLORS', 'UI_COLORS',
 
     # UI компоненты
-    'FullScreenQuadrantsWidget', 'CompactTaskListWidget', 'TaskEditDialog', 'TaskTypeDialog', 'TaskDetailPanel',
-
-    # Mixins
-    'CalendarMixin', 'DragDropMixin',
+    'QuadrantsWidget', 'TaskListWidget', 'TaskDetailPanel',
+    'TaskEditDialog', 'TaskTypeDialog', 'CalendarWindow',
 
     # Утилиты
-    'DateUtils', 'DatabaseUtils', 'UIUtils', 'TaskUtils', 'ValidationUtils',
-    'safe_int', 'safe_float', 'truncate_text'
+    'DateUtils', 'TaskUtils', 'truncate_text'
 ]

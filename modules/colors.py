@@ -28,20 +28,24 @@ def get_pastel_color(hue: int, saturation: float = 0.3, lightness: float = 0.8) 
     return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
 
-# Базовые цвета интерфейса
+# Цвета квадрантов
 QUADRANT_COLORS = {
     1: get_pastel_color(120, 0.25, 0.9),  # Светло-зеленый
     2: get_pastel_color(210, 0.25, 0.9),  # Светло-голубой
-    3: get_pastel_color(30, 0.25, 0.9),  # Светло-оранжевый
+    3: get_pastel_color(30, 0.25, 0.9),   # Светло-оранжевый
     4: get_pastel_color(270, 0.25, 0.9),  # Светло-фиолетовый
 }
 
+# Системные цвета интерфейса
 UI_COLORS = {
-    'inactive': '#F8F8F8',
     'primary': '#2196F3',
     'accent': '#FF5722',
-    'text': '#212121',
-    'text_secondary': '#757575',
+    'success': '#4CAF50',
+    'warning': '#FF9800',
+    'error': '#F44336',
     'background': '#FFFFFF',
-    'border': '#E0E0E0'
+    'text_primary': '#212121',
+    'text_secondary': '#757575',
+    'border': '#E0E0E0',
+    'inactive': '#F8F8F8',
 }
