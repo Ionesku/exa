@@ -193,7 +193,6 @@ class CalendarWindow:
                     text=str(day),
                     command=lambda d=day_date: self.select_date(d),
                     width=8, height=3,
-                    font=('Arial', 10),
                     **style
                 )
                 # Смещаем на 1, так как строка 0 - заголовки

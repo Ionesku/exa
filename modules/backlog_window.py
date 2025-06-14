@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Оптимизированное окно бэклога
+Task Manager - Оптимизированное окно бэклога (исправленная версия)
 """
 
 import tkinter as tk
@@ -32,10 +32,13 @@ class BacklogWindow:
         self.all_tasks: List[Task] = []
         self.filtered_tasks: List[Task] = []
         
+        # Маппинг item -> task_id для Treeview
+        self.item_to_task_id = {}
+        
         # Создание окна
         self.window = tk.Toplevel(parent)
         self.window.title("Бэклог задач")
-        self.window.geometry("900x600")
+        self.window.geometry("1000x700")
         self.window.transient(parent)
         
         self.setup_ui()
@@ -56,6 +59,10 @@ class BacklogWindow:
         right_panel = ttk.Frame(main_container)
         main_container.add(right_panel, weight=3)
         self.setup_right_panel(right_panel)
+        
+        # Установка начальных пропорций (250 пикселей для левой панели)
+        self.window.update()
+        main_container.sashpos(0, 250)
         
         # Нижняя панель - статус и кнопки
         bottom_panel = ttk.Frame(self.window)
@@ -141,7 +148,7 @@ class BacklogWindow:
         list_frame = ttk.Frame(parent)
         list_frame.pack(fill='both', expand=True, padx=5, pady=5)
         
-        # Создаем Treeview
+        # Создаем Treeview (без task_id в columns)
         columns = ('type', 'importance', 'priority', 'duration')
         self.tasks_tree = ttk.Treeview(list_frame, columns=columns, show='tree headings', height=20)
         
@@ -154,10 +161,10 @@ class BacklogWindow:
         
         # Ширина колонок
         self.tasks_tree.column('#0', width=400, stretch=True)
-        self.tasks_tree.column('type', width=100)
-        self.tasks_tree.column('importance', width=40, anchor='center')
-        self.tasks_tree.column('priority', width=40, anchor='center')
-        self.tasks_tree.column('duration', width=60, anchor='center')
+        self.tasks_tree.column('type', width=120)
+        self.tasks_tree.column('importance', width=50, anchor='center')
+        self.tasks_tree.column('priority', width=50, anchor='center')
+        self.tasks_tree.column('duration', width=70, anchor='center')
         
         # Scrollbars
         y_scroll = ttk.Scrollbar(list_frame, orient='vertical', command=self.tasks_tree.yview)
@@ -256,28 +263,48 @@ class BacklogWindow:
                 type_counts[type_id] = 1
         
         # Создаем кнопки для каждого типа
-        for task_type in task_types:
+        for i, task_type in enumerate(task_types):
             count = type_counts.get(task_type.id, 0)
             if count > 0:
-                btn_frame = tk.Frame(self.types_list_frame)
+                # Фрейм для типа
+                type_frame = tk.Frame(self.types_list_frame, bg='white')
+                type_frame.pack(fill='x', pady=0)
+                
+                # Кнопка с типом
+                btn_frame = tk.Frame(type_frame, bg='white')
                 btn_frame.pack(fill='x', pady=1)
                 
                 # Цветной индикатор
                 color_label = tk.Label(btn_frame, text="●", fg=task_type.color,
-                                      font=('Arial', 12))
+                                      font=('Arial', 12), bg='white')
                 color_label.pack(side='left', padx=(5, 0))
                 
                 # Кнопка с названием и количеством
                 btn = tk.Button(btn_frame, 
                                text=f"{task_type.name} ({count})",
                                relief='flat',
+                               bg='white',
                                anchor='w',
+                               bd=0,
+                               padx=10,
+                               pady=5,
                                command=lambda t=task_type: self.filter_by_type(t))
                 btn.pack(side='left', fill='x', expand=True)
                 
                 # Подсветка при наведении
-                btn.bind('<Enter>', lambda e, b=btn: b.config(relief='raised'))
-                btn.bind('<Leave>', lambda e, b=btn: b.config(relief='flat'))
+                def on_enter(e, button=btn):
+                    button.config(bg='#E3F2FD')
+                
+                def on_leave(e, button=btn):
+                    button.config(bg='white')
+                
+                btn.bind('<Enter>', on_enter)
+                btn.bind('<Leave>', on_leave)
+                
+                # Разделитель (кроме последнего)
+                if i < len(task_types) - 1:
+                    separator = tk.Frame(self.types_list_frame, height=1, bg='#E0E0E0')
+                    separator.pack(fill='x', padx=10)
 
     def filter_by_type(self, task_type):
         """Фильтрация по типу задачи"""
@@ -327,14 +354,13 @@ class BacklogWindow:
             self.filtered_tasks.sort(key=lambda t: t.title.lower())
         elif sort_by == "type":
             self.filtered_tasks.sort(key=lambda t: t.task_type_id)
-        
-        self.update_tasks_display()
 
     def update_tasks_display(self):
         """Обновление отображения задач в дереве"""
-        # Очищаем дерево
+        # Очищаем дерево и маппинг
         for item in self.tasks_tree.get_children():
             self.tasks_tree.delete(item)
+        self.item_to_task_id.clear()
         
         # Получаем типы для отображения
         task_types = {t.id: t for t in self.db.get_task_types()}
@@ -354,8 +380,8 @@ class BacklogWindow:
                                         values=(type_name, task.importance, task.priority, duration),
                                         tags=(f'priority_{task.priority}',))
             
-            # Сохраняем ссылку на задачу
-            self.tasks_tree.set(item, 'task_id', task.id)
+            # Сохраняем маппинг
+            self.item_to_task_id[item] = task.id
         
         # Обновляем информацию
         self.tasks_info_label.config(text=f"Показано задач: {len(self.filtered_tasks)} из {len(self.all_tasks)}")
@@ -366,9 +392,9 @@ class BacklogWindow:
         selection = self.tasks_tree.selection()
         if selection:
             item = selection[0]
-            task_id = self.tasks_tree.set(item, 'task_id')
+            task_id = self.item_to_task_id.get(item)
             if task_id:
-                self.selected_task = next((t for t in self.all_tasks if t.id == int(task_id)), None)
+                self.selected_task = next((t for t in self.all_tasks if t.id == task_id), None)
                 self.update_status()
 
     def show_context_menu(self, event):

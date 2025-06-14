@@ -82,9 +82,6 @@ class TaskDetailPanel:
                                    command=self.toggle_edit_mode)
         self.edit_btn.pack(pady=2)
 
-        self.save_btn = ttk.Button(right_frame, text="Сохранить",
-                                   command=self.save_changes, state='disabled')
-        self.save_btn.pack(pady=2)
 
         self.cancel_btn = ttk.Button(right_frame, text="Отмена",
                                      command=self.cancel_edit, state='disabled')
@@ -190,11 +187,8 @@ class TaskDetailPanel:
         self.current_task.priority = self.priority_var.get()
         self.current_task.duration = self.duration_var.get()
 
-        # Сохраняем в БД
-        self.task_manager.db.save_task(self.current_task)
-
-        # Обновляем интерфейс
-        self.task_manager.refresh_task_list()
+        # Сохраняем в БД через сервис
+        self.task_manager.task_service.update_task(self.current_task)
 
         self.exit_edit_mode()
         messagebox.showinfo("Успех", "Изменения сохранены!")
