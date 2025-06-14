@@ -12,6 +12,9 @@ from modules.database import DatabaseManager
 # Система событий
 from modules.event_manager import EventManager, EventType, Event
 
+# Инкрементальные обновления
+from modules.incremental_updater import IncrementalUpdater, SmartUpdateMixin, UpdateContext
+
 # Цвета
 from modules.colors import get_priority_color, get_completed_color, QUADRANT_COLORS, UI_COLORS
 
@@ -35,6 +38,9 @@ __all__ = [
 
     # Система событий
     'EventManager', 'EventType', 'Event',
+    
+    # Инкрементальные обновления
+    'IncrementalUpdater', 'SmartUpdateMixin', 'UpdateContext',
 
     # Цвета
     'get_priority_color', 'get_completed_color', 'QUADRANT_COLORS', 'UI_COLORS',
