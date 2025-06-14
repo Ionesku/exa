@@ -6,18 +6,18 @@ Task Manager - Цвета и стили (Material Design)
 
 def get_priority_color(priority: int) -> str:
     """Вычисление цвета для приоритета (Material Design градиент)"""
-    # Material Design цветовая схема от зеленого к красному
+    # Material Design цветовая схема - только цвета с хорошим контрастом для белого текста
     colors = [
         "#4CAF50",  # 1 - Material Green 500
         "#66BB6A",  # 2 - Material Green 400
         "#81C784",  # 3 - Material Green 300
-        "#A5D6A7",  # 4 - Material Green 200
-        "#FFF176",  # 5 - Material Yellow 300
-        "#FFD54F",  # 6 - Material Yellow 400
-        "#FFB74D",  # 7 - Material Orange 300
-        "#FF8A65",  # 8 - Material Deep Orange 300
-        "#EF5350",  # 9 - Material Red 400
-        "#F44336"   # 10 - Material Red 500
+        "#388E3C",  # 4 - Material Green 700
+        "#2E7D32",  # 5 - Material Green 800
+        "#FF6F00",  # 6 - Material Amber 900
+        "#E65100",  # 7 - Material Orange 900
+        "#BF360C",  # 8 - Material Deep Orange 900
+        "#E53935",  # 9 - Material Red 600
+        "#C62828"   # 10 - Material Red 800
     ]
     
     # Обеспечиваем, что приоритет в диапазоне 1-10
@@ -27,7 +27,7 @@ def get_priority_color(priority: int) -> str:
 
 def get_completed_color() -> str:
     """Цвет для выполненных задач"""
-    return "#BDBDBD"  # Material Grey 400
+    return "#9E9E9E"  # Material Grey 500
 
 
 def get_pastel_color(hue: int, saturation: float = 0.3, lightness: float = 0.9) -> str:

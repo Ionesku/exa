@@ -40,13 +40,10 @@ class TaskDetailPanel:
 
         # Содержание
         ttk.Label(left_frame, text="Содержание:").grid(row=1, column=0, sticky='nw', pady=2)
-        content_frame = tk.Frame(left_frame, bg=UI_COLORS['inactive'], relief='sunken', bd=1)
-        content_frame.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
-        
-        self.content_text = tk.Text(content_frame, height=3, bg=UI_COLORS['inactive'], 
-                                   fg=UI_COLORS['text_secondary'],
-                                   relief='flat', state='disabled')
-        self.content_text.pack(fill='both', expand=True, padx=2, pady=2)
+        # Используем ttk.Entry с state='readonly' для единообразного вида с полем "Название"
+        self.content_var = tk.StringVar()
+        self.content_entry = ttk.Entry(left_frame, textvariable=self.content_var, state='readonly')
+        self.content_entry.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
 
         # Параметры
         params_frame = ttk.Frame(left_frame)
@@ -101,10 +98,7 @@ class TaskDetailPanel:
 
         if task:
             self.title_var.set(task.title)
-            self.content_text.config(state='normal')
-            self.content_text.delete(1.0, tk.END)
-            self.content_text.insert(1.0, task.content)
-            self.content_text.config(state='disabled')
+            self.content_var.set(task.content)
 
             self.importance_var.set(task.importance)
             self.priority_var.set(task.priority)
@@ -118,9 +112,7 @@ class TaskDetailPanel:
     def show_no_task(self):
         """Отображение пустого состояния"""
         self.title_var.set("")
-        self.content_text.config(state='normal')
-        self.content_text.delete(1.0, tk.END)
-        self.content_text.config(state='disabled')
+        self.content_var.set("")
 
         self.importance_var.set(1)
         self.priority_var.set(5)

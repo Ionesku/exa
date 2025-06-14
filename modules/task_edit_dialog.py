@@ -276,6 +276,7 @@ class TaskEditDialog:
 
         # Сохраняем в БД
         self.task.id = self.task_manager.db.save_task(self.task)
+        print(f"💾 Задача сохранена: {self.task.title}, дата: {self.task.date_scheduled}, квадрант: {self.task.quadrant}")
 
         self.result = self.task
         self.dialog.destroy()

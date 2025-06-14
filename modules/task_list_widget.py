@@ -61,12 +61,12 @@ class TaskListWidget:
 
         # Вкладка "Активные"
         self.active_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.active_frame, text="Активные")
+        self.notebook.add(self.active_frame, text="Активные (0)")
         self.setup_task_tab(self.active_frame, "active")
 
         # Вкладка "Выполненные"
         self.completed_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.completed_frame, text="Выполненные")
+        self.notebook.add(self.completed_frame, text="Выполненные (0)")
         self.setup_task_tab(self.completed_frame, "completed")
 
     def setup_task_tab(self, parent, tab_type):
@@ -116,12 +116,16 @@ class TaskListWidget:
         completed_tasks = [t for t in tasks if t.is_completed]
         
         # Обновляем активные задачи
-        self._update_tab_tasks(self.active_scrollable_frame, active_tasks)
+        self._update_tab_tasks(self.active_scrollable_frame, active_tasks, is_completed=False)
         
-        # Обновляем выполненные задачи
-        self._update_tab_tasks(self.completed_scrollable_frame, completed_tasks)
+        # Обновляем выполненные задачи  
+        self._update_tab_tasks(self.completed_scrollable_frame, completed_tasks, is_completed=True)
+        
+        # Обновляем количество на вкладках
+        self.notebook.tab(0, text=f"Активные ({len(active_tasks)})")
+        self.notebook.tab(1, text=f"Выполненные ({len(completed_tasks)})")
     
-    def _update_tab_tasks(self, parent_frame, tasks):
+    def _update_tab_tasks(self, parent_frame, tasks, is_completed=False):
         """Обновление задач в конкретной вкладке"""
         # Очищаем текущие виджеты
         for widget in parent_frame.winfo_children():
@@ -130,6 +134,9 @@ class TaskListWidget:
         # Добавляем новые задачи
         for task in tasks:
             self._create_task_widget(parent_frame, task)
+        
+        # Принудительное обновление интерфейса
+        parent_frame.update_idletasks()
     
     def add_task(self, task: Task):
         """Добавление одной задачи в список"""

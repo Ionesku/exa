@@ -246,6 +246,8 @@ class TaskManager:
         tasks = self.db.get_tasks(date_str, include_backlog=False)
 
         print(f"📊 Найдено задач: {len(tasks)}")
+        for task in tasks:
+            print(f"  - {task.title} (квадрант: {task.quadrant}, выполнена: {task.is_completed})")
 
         # Группируем задачи
         quadrant_tasks = {0: [], 1: [], 2: [], 3: [], 4: []}
@@ -253,7 +255,7 @@ class TaskManager:
         for task in tasks:
             quadrant_tasks[task.quadrant].append(task)
 
-        # Обновляем список задач
+        # Обновляем список задач (передаем все задачи из квадранта 0)
         self.task_list_widget.update_tasks(quadrant_tasks[0])
 
         # Обновляем квадранты
@@ -273,8 +275,8 @@ class TaskManager:
             self.current_task.is_completed = completed
             self.task_detail_panel.show_task(self.current_task)
 
-        # Обновляем только список задач
-        self.refresh_task_list()
+        # Обновляем список задач с небольшой задержкой
+        self.root.after(100, self.refresh_task_list)
 
     def move_task_to_quadrant(self, task: Task, quadrant: int):
         """Перемещение задачи в квадрант"""
@@ -295,8 +297,8 @@ class TaskManager:
 
         self.db.save_task(task)
         
-        # Обновляем только список задач
-        self.refresh_task_list()
+        # Обновляем список задач
+        self.root.after(50, self.refresh_task_list)
 
         if self.current_task and self.current_task.id == task.id:
             self.current_task = task
