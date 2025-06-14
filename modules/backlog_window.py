@@ -420,8 +420,7 @@ class BacklogWindow:
         self.apply_filters()
         
         # Обновляем основное окно
-        if hasattr(self.task_manager, 'refresh_ui'):
-            self.task_manager.refresh_ui()
+        self.task_manager.refresh_ui()
         
         messagebox.showinfo("Успех", f"Задача '{self.selected_task.title}' перемещена на сегодня")
 
