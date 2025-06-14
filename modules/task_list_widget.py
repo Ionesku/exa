@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Виджет списка задач с группировкой по типам
+Task Manager - Виджет списка задач (переработанный)
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import List, Dict
+from typing import List, Dict, Optional
+import logging
+
 from .task_models import Task
 from .colors import get_priority_color, get_completed_color
+
+logger = logging.getLogger(__name__)
 
 
 class TaskListWidget:
@@ -16,10 +20,12 @@ class TaskListWidget:
     def __init__(self, parent, task_manager):
         self.parent = parent
         self.task_manager = task_manager
-        self.selected_task = None
+        self.selected_task: Optional[Task] = None
         self.task_groups = {}  # Хранение групп задач
         self.group_widgets = {}  # Виджеты групп
         self.group_states = {}  # Состояния групп (свернута/развернута)
+        self.drag_data = {"task": None, "widget": None}
+        
         self.setup_task_list()
         self.setup_context_menu()
 
@@ -27,7 +33,7 @@ class TaskListWidget:
         """Создание контекстного меню"""
         self.context_menu = tk.Menu(self.task_manager.root, tearoff=0)
         
-        # Прямые опции перемещения без вложенности
+        # Прямые опции перемещения
         self.context_menu.add_command(label="В первый квадрант", 
                                      command=lambda: self.move_selected_to_quadrant(1))
         self.context_menu.add_command(label="Во второй квадрант", 
@@ -48,8 +54,7 @@ class TaskListWidget:
     def setup_task_list(self):
         """Создание списка задач"""
         self.main_frame = ttk.LabelFrame(self.parent, text="Задачи")
-        self.main_frame.pack(side='right', fill='y')
-
+        
         # Фиксированная ширина
         self.main_frame.configure(width=280)
         self.main_frame.pack_propagate(False)
@@ -75,10 +80,16 @@ class TaskListWidget:
 
     def setup_task_tab(self, parent, tab_type):
         """Настройка вкладки с задачами"""
-        # Прокручиваемый список
+        # Создаем область с прокруткой
+        self._create_scrollable_area(parent, tab_type)
+
+    def _create_scrollable_area(self, parent, tab_type):
+        """Создание прокручиваемой области"""
+        # Canvas для прокрутки
         canvas = tk.Canvas(parent, bg='white', width=260)
         scrollbar = ttk.Scrollbar(parent, orient='vertical', command=canvas.yview)
 
+        # Прокручиваемый фрейм
         scrollable_frame = ttk.Frame(canvas)
         scrollable_frame.bind(
             "<Configure>",
@@ -86,17 +97,18 @@ class TaskListWidget:
         )
 
         scrollable_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        
+        # Адаптивная ширина
         canvas.bind(
             "<Configure>",
             lambda e: canvas.itemconfig(scrollable_window, width=e.width)
         )
+        
         canvas.configure(yscrollcommand=scrollbar.set)
 
+        # Размещение
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-
-        # Закрытие контекстного меню по клику
-        canvas.bind('<Button-1>', self.close_context_menu)
 
         # Сохраняем ссылки
         if tab_type == "active":
@@ -107,16 +119,20 @@ class TaskListWidget:
             self.completed_scrollable_frame = scrollable_frame
 
     def update_tasks(self, tasks: List[Task]):
-        """Обновление списка задач с группировкой"""
+        """Обновление списка задач"""
+        logger.debug(f"Updating task list with {len(tasks)} tasks")
+        
         # Получаем типы задач
-        task_types = self.task_manager.db.get_task_types()
+        task_types = self.task_manager.get_task_types()
         type_map = {t.id: t for t in task_types}
         
-        # Разделяем задачи на активные и выполненные (показываем ВСЕ задачи дня)
-        active_tasks = [t for t in tasks if not t.is_completed]
-        completed_tasks = [t for t in tasks if t.is_completed]
+        # Разделяем задачи
+        active_tasks = [t for t in tasks if not t.is_completed and t.quadrant == 0]
+        completed_tasks = [t for t in tasks if t.is_completed and t.quadrant == 0]
         
-        # Группируем задачи по типам
+        logger.debug(f"Active tasks: {len(active_tasks)}, Completed: {len(completed_tasks)}")
+        
+        # Группируем по типам
         active_groups = self._group_tasks_by_type(active_tasks, type_map)
         completed_groups = self._group_tasks_by_type(completed_tasks, type_map)
         
@@ -124,7 +140,7 @@ class TaskListWidget:
         self._update_tab_with_groups(self.active_scrollable_frame, active_groups, "active")
         self._update_tab_with_groups(self.completed_scrollable_frame, completed_groups, "completed")
         
-        # Обновляем количество на вкладках
+        # Обновляем заголовки вкладок
         self.notebook.tab(0, text=f"Активные ({len(active_tasks)})")
         self.notebook.tab(1, text=f"Выполненные ({len(completed_tasks)})")
     
@@ -143,12 +159,12 @@ class TaskListWidget:
         return groups
     
     def _update_tab_with_groups(self, parent_frame, groups: Dict[str, List[Task]], tab_type: str):
-        """Обновление вкладки с группировкой задач"""
-        # Очищаем текущие виджеты
+        """Обновление вкладки с группировкой"""
+        # Очищаем виджеты
         for widget in parent_frame.winfo_children():
             widget.destroy()
         
-        # Сохраняем ссылки на группы для данной вкладки
+        # Ключ для хранения виджетов группы
         group_key = f"{tab_type}_groups"
         if group_key not in self.group_widgets:
             self.group_widgets[group_key] = {}
@@ -163,61 +179,57 @@ class TaskListWidget:
         # Создаем группы
         for type_name in sorted(groups.keys()):
             tasks = groups[type_name]
-            if not tasks:  # Пропускаем пустые группы
+            if not tasks:
                 continue
             
-            # Создаем фрейм группы
-            group_frame = tk.Frame(parent_frame, bg='white')
-            group_frame.pack(fill='x', pady=(0, 5))
-            
-            # Заголовок группы
-            header_frame = tk.Frame(group_frame, bg='#E0E0E0', relief='solid', bd=1)
-            header_frame.pack(fill='x')
-            
-            # Кнопка сворачивания/разворачивания
-            state_key = f"{tab_type}_{type_name}"
-            if state_key not in self.group_states:
-                self.group_states[state_key] = True  # По умолчанию развернута
-            
-            is_expanded = self.group_states[state_key]
-            toggle_text = "▼" if is_expanded else "▶"
-            
-            toggle_btn = tk.Label(header_frame, text=toggle_text, 
-                                 bg='#E0E0E0', font=('Arial', 10),
-                                 cursor='hand2')
-            toggle_btn.pack(side='left', padx=(5, 0))
-            
-            # Название группы с количеством
-            group_label = tk.Label(header_frame, 
-                                  text=f"{type_name} ({len(tasks)})",
-                                  bg='#E0E0E0', font=('Arial', 10, 'bold'))
-            group_label.pack(side='left', padx=5)
-            
-            # Контейнер для задач
-            tasks_container = tk.Frame(group_frame, bg='white')
-            if is_expanded:
-                tasks_container.pack(fill='x', padx=(20, 0))
-            
-            # Добавляем задачи в контейнер
-            for task in tasks:
-                self._create_task_widget(tasks_container, task)
-            
-            # Привязываем обработчик сворачивания/разворачивания
-            def toggle_group(e, key=state_key, container=tasks_container):
-                self.group_states[key] = not self.group_states[key]
-                # Обновляем только эту группу
-                self._update_group_visibility(key, container, e.widget)
-            
-            toggle_btn.bind('<Button-1>', toggle_group)
-            group_label.bind('<Button-1>', toggle_group)
-            
-            # Сохраняем ссылки
-            self.group_widgets[group_key][type_name] = {
-                'frame': group_frame,
-                'container': tasks_container,
-                'toggle_btn': toggle_btn,
-                'expanded': is_expanded
-            }
+            self._create_group_widget(parent_frame, type_name, tasks, tab_type)
+    
+    def _create_group_widget(self, parent_frame, type_name: str, tasks: List[Task], tab_type: str):
+        """Создание виджета группы задач"""
+        # Фрейм группы
+        group_frame = tk.Frame(parent_frame, bg='white')
+        group_frame.pack(fill='x', pady=(0, 5))
+        
+        # Заголовок группы
+        header_frame = tk.Frame(group_frame, bg='#E0E0E0', relief='solid', bd=1)
+        header_frame.pack(fill='x')
+        
+        # Состояние сворачивания/разворачивания
+        state_key = f"{tab_type}_{type_name}"
+        if state_key not in self.group_states:
+            self.group_states[state_key] = True  # По умолчанию развернута
+        
+        is_expanded = self.group_states[state_key]
+        toggle_text = "▼" if is_expanded else "▶"
+        
+        # Кнопка сворачивания
+        toggle_btn = tk.Label(header_frame, text=toggle_text, 
+                             bg='#E0E0E0', font=('Arial', 10),
+                             cursor='hand2')
+        toggle_btn.pack(side='left', padx=(5, 0))
+        
+        # Название группы
+        group_label = tk.Label(header_frame, 
+                              text=f"{type_name} ({len(tasks)})",
+                              bg='#E0E0E0', font=('Arial', 10, 'bold'))
+        group_label.pack(side='left', padx=5)
+        
+        # Контейнер для задач
+        tasks_container = tk.Frame(group_frame, bg='white')
+        if is_expanded:
+            tasks_container.pack(fill='x', padx=(20, 0))
+        
+        # Добавляем задачи
+        for task in tasks:
+            self._create_task_widget(tasks_container, task)
+        
+        # Обработчик сворачивания/разворачивания
+        def toggle_group(e):
+            self.group_states[state_key] = not self.group_states[state_key]
+            self._update_group_visibility(state_key, tasks_container, toggle_btn)
+        
+        toggle_btn.bind('<Button-1>', toggle_group)
+        group_label.bind('<Button-1>', toggle_group)
     
     def _update_group_visibility(self, state_key: str, container, toggle_widget):
         """Обновление видимости группы"""
@@ -232,7 +244,7 @@ class TaskListWidget:
     
     def _create_task_widget(self, parent_frame, task: Task):
         """Создание виджета задачи"""
-        # Выбираем цвет для задачи
+        # Определяем цвет
         if task.is_completed:
             bg_color = get_completed_color()
         else:
@@ -241,27 +253,17 @@ class TaskListWidget:
         # Контейнер задачи
         task_frame = tk.Frame(parent_frame,
                              bg=bg_color,
-                             relief='solid', bd=1)
+                             relief='solid', bd=1,
+                             cursor='hand2')
         task_frame.pack(fill='x', pady=2)
 
         # Основная информация
         main_info_frame = tk.Frame(task_frame, bg=bg_color)
         main_info_frame.pack(fill='x', padx=5, pady=(3, 0))
 
-        # Индикаторы справа
-        indicators_frame = tk.Frame(main_info_frame, bg=bg_color)
-        indicators_frame.pack(side='right')
-        
-        # Индикатор квадранта
-        if task.quadrant > 0:
-            quad_label = tk.Label(indicators_frame, text=f"Q{task.quadrant}",
-                                 bg=bg_color, fg='white',
-                                 font=('Arial', 8, 'bold'))
-            quad_label.pack(side='right', padx=2)
-        
         # Индикатор планирования
         if task.is_planned:
-            plan_label = tk.Label(indicators_frame, text="📅",
+            plan_label = tk.Label(main_info_frame, text="📅",
                                  bg=bg_color,
                                  font=('Arial', 8))
             plan_label.pack(side='right', padx=2)
@@ -300,28 +302,62 @@ class TaskListWidget:
 
         # События
         for widget in [task_frame, main_info_frame, title_label, info_frame, info_label]:
-            widget.bind("<Button-1>", lambda e, t=task: self.select_task(t))
-            widget.bind("<Button-3>", lambda e, t=task: self.show_context_menu(e, t))
+            widget.bind("<Button-1>", lambda e, t=task: self._on_task_click(e, t))
+            widget.bind("<B1-Motion>", lambda e, t=task, w=task_frame: self._on_task_drag(e, t, w))
+            widget.bind("<ButtonRelease-1>", lambda e: self._on_task_release(e))
+            widget.bind("<Button-3>", lambda e, t=task: self._show_context_menu(e, t))
 
-    def close_context_menu(self, event=None):
-        """Закрытие контекстного меню"""
-        try:
-            self.context_menu.unpost()
-        except:
-            pass
+    def _on_task_click(self, event, task: Task):
+        """Обработка клика по задаче"""
+        self.select_task(task)
+        # Сохраняем для drag & drop
+        self.drag_data["task"] = task
+        self.drag_data["start_x"] = event.x_root
+        self.drag_data["start_y"] = event.y_root
+
+    def _on_task_drag(self, event, task: Task, widget: tk.Widget):
+        """Обработка перетаскивания"""
+        if not self.drag_data["widget"]:
+            # Создаем визуализацию перетаскивания
+            self.drag_data["widget"] = tk.Toplevel(self.task_manager.root)
+            self.drag_data["widget"].overrideredirect(True)
+            self.drag_data["widget"].attributes("-alpha", 0.8)
+            
+            # Визуализация
+            drag_label = tk.Label(
+                self.drag_data["widget"],
+                text=task.title[:20] + "..." if len(task.title) > 20 else task.title,
+                bg=get_priority_color(task.priority),
+                fg='white',
+                font=('Arial', 9, 'bold'),
+                padx=10,
+                pady=5
+            )
+            drag_label.pack()
+        
+        # Перемещаем виджет
+        x = event.x_root - 20
+        y = event.y_root - 10
+        self.drag_data["widget"].geometry(f"+{x}+{y}")
+
+    def _on_task_release(self, event):
+        """Обработка отпускания задачи"""
+        if self.drag_data["widget"]:
+            self.drag_data["widget"].destroy()
+            self.drag_data["widget"] = None
+        
+        # Очищаем данные
+        self.drag_data["task"] = None
 
     def select_task(self, task: Task):
         """Выбор задачи"""
         self.selected_task = task
         self.task_manager.select_task(task)
 
-    def show_context_menu(self, event, task: Task):
+    def _show_context_menu(self, event, task: Task):
         """Показать контекстное меню"""
         self.selected_task = task
         self.task_manager.select_task(task)
-        
-        # Закрываем меню по любому клику
-        self.task_manager.root.bind_all('<Button-1>', self.close_context_menu)
         
         try:
             self.context_menu.tk_popup(event.x_root, event.y_root)
@@ -331,12 +367,13 @@ class TaskListWidget:
     def move_selected_to_quadrant(self, quadrant: int):
         """Перемещение выбранной задачи в квадрант"""
         if self.selected_task:
-            self.close_context_menu()
+            logger.info(f"Moving task to quadrant {quadrant}")
             self.task_manager.move_task_to_quadrant(self.selected_task, quadrant)
 
     def move_selected_to_backlog(self):
         """Перемещение выбранной задачи в бэклог"""
         if self.selected_task:
+            logger.info("Moving task to backlog")
             self.task_manager.move_task_to_backlog(self.selected_task)
 
     def edit_selected_task(self):
@@ -351,5 +388,4 @@ class TaskListWidget:
             return
 
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.selected_task.title}'?"):
-            self.task_manager.db.delete_task(self.selected_task.id)
-            self.task_manager.refresh_all()
+            self.task_manager.task_service.delete_task(self.selected_task.id)

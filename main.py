@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Task Manager - Основной файл приложения (исправленная версия)
+Task Manager - Основной файл приложения с паттерном Observer
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta, date
 from typing import Optional, Dict, List
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Импорт модулей
 from modules import (
@@ -16,6 +21,69 @@ from modules import (
     TaskEditDialog, CalendarWindow,
     get_priority_color, get_completed_color, UI_COLORS
 )
+from modules.event_manager import EventManager, EventType, Event
+
+
+class TaskService:
+    """Сервис для работы с задачами"""
+    
+    def __init__(self, db: DatabaseManager, event_manager: EventManager):
+        self.db = db
+        self.events = event_manager
+        
+    def create_task(self, task: Task) -> Task:
+        """Создание новой задачи"""
+        task.id = self.db.save_task(task)
+        self.events.emit_now(EventType.TASK_CREATED, task)
+        return task
+    
+    def update_task(self, task: Task) -> Task:
+        """Обновление задачи"""
+        self.db.save_task(task)
+        self.events.emit_now(EventType.TASK_UPDATED, task)
+        return task
+    
+    def delete_task(self, task_id: int):
+        """Удаление задачи"""
+        self.db.delete_task(task_id)
+        self.events.emit_now(EventType.TASK_DELETED, task_id)
+    
+    def move_task_to_quadrant(self, task: Task, quadrant: int) -> Task:
+        """Перемещение задачи в квадрант"""
+        old_quadrant = task.quadrant
+        task.quadrant = quadrant
+        
+        # Бизнес-логика перемещения
+        if old_quadrant != quadrant and quadrant > 0:
+            task.move_count += 1
+            task.importance = min(10, task.importance + 1)
+            task.priority = min(10, max(1, task.importance))
+        
+        self.db.save_task(task)
+        self.events.emit_now(EventType.TASK_MOVED, {
+            'task': task,
+            'from_quadrant': old_quadrant,
+            'to_quadrant': quadrant
+        })
+        return task
+    
+    def toggle_task_completion(self, task: Task, completed: bool) -> Task:
+        """Переключение статуса выполнения"""
+        task.is_completed = completed
+        self.db.save_task(task)
+        self.events.emit_now(EventType.TASK_COMPLETED, task)
+        return task
+    
+    def get_tasks_for_date(self, date_str: str) -> Dict[int, List[Task]]:
+        """Получение задач для даты, сгруппированных по квадрантам"""
+        tasks = self.db.get_tasks(date_str, include_backlog=False)
+        
+        # Группировка по квадрантам
+        quadrant_tasks = {i: [] for i in range(5)}
+        for task in tasks:
+            quadrant_tasks[task.quadrant].append(task)
+        
+        return quadrant_tasks
 
 
 class TaskManager:
@@ -29,20 +97,128 @@ class TaskManager:
 
         # Инициализация компонентов
         self.db = DatabaseManager()
+        self.events = EventManager()
+        self.task_service = TaskService(self.db, self.events)
+        
+        # Состояние приложения
         self.current_task: Optional[Task] = None
         self.current_date = datetime.now().date()
         self.day_started = False
         self.day_start_time = None
         
-        # Кеш для оптимизации
+        # Кеш
         self.task_types_cache: List[TaskType] = []
-        self.last_types_update = None
+        self._updating = False  # Флаг для предотвращения циклических обновлений
+
+        # Подписка на события
+        self.setup_event_handlers()
 
         # Создание интерфейса
         self.setup_ui()
 
         # Загрузка данных
         self.load_data()
+
+    def setup_event_handlers(self):
+        """Настройка обработчиков событий"""
+        # События задач
+        self.events.subscribe(EventType.TASK_CREATED, self.on_task_created)
+        self.events.subscribe(EventType.TASK_UPDATED, self.on_task_updated)
+        self.events.subscribe(EventType.TASK_DELETED, self.on_task_deleted)
+        self.events.subscribe(EventType.TASK_MOVED, self.on_task_moved)
+        self.events.subscribe(EventType.TASK_COMPLETED, self.on_task_completed)
+        
+        # События дня
+        self.events.subscribe(EventType.DATE_CHANGED, self.on_date_changed)
+
+    def on_task_created(self, event: Event):
+        """Обработка создания задачи"""
+        task = event.data
+        logger.info(f"Task created: {task.title}")
+        
+        # Обновляем только если задача для текущей даты
+        if task.date_scheduled == self.current_date.isoformat() or not task.date_scheduled:
+            self.refresh_ui_for_task(task)
+
+    def on_task_updated(self, event: Event):
+        """Обработка обновления задачи"""
+        task = event.data
+        logger.info(f"Task updated: {task.title}")
+        
+        # Обновляем текущую задачу если это она
+        if self.current_task and self.current_task.id == task.id:
+            self.current_task = task
+            self.task_detail_panel.show_task(task)
+        
+        self.refresh_ui_for_task(task)
+
+    def on_task_deleted(self, event: Event):
+        """Обработка удаления задачи"""
+        task_id = event.data
+        logger.info(f"Task deleted: {task_id}")
+        
+        # Очищаем выбор если удалена текущая задача
+        if self.current_task and self.current_task.id == task_id:
+            self.current_task = None
+            self.task_detail_panel.show_no_task()
+        
+        self.refresh_ui()
+
+    def on_task_moved(self, event: Event):
+        """Обработка перемещения задачи"""
+        data = event.data
+        task = data['task']
+        from_quad = data['from_quadrant']
+        to_quad = data['to_quadrant']
+        
+        logger.info(f"Task moved: {task.title} from {from_quad} to {to_quad}")
+        
+        # Обновляем UI
+        self.refresh_ui_for_task(task)
+        
+        # Обновляем текущую задачу если это она
+        if self.current_task and self.current_task.id == task.id:
+            self.current_task = task
+            self.task_detail_panel.show_task(task)
+
+    def on_task_completed(self, event: Event):
+        """Обработка выполнения задачи"""
+        task = event.data
+        logger.info(f"Task completed status changed: {task.title} -> {task.is_completed}")
+        self.refresh_ui_for_task(task)
+
+    def on_date_changed(self, event: Event):
+        """Обработка изменения даты"""
+        self.refresh_ui()
+
+    def refresh_ui(self):
+        """Полное обновление UI"""
+        if self._updating:
+            return
+            
+        self._updating = True
+        try:
+            # Получаем все задачи для текущей даты
+            quadrant_tasks = self.task_service.get_tasks_for_date(self.current_date.isoformat())
+            all_tasks = []
+            for tasks in quadrant_tasks.values():
+                all_tasks.extend(tasks)
+            
+            # Обновляем виджеты
+            self.quadrants_widget.update_quadrants(quadrant_tasks)
+            self.task_list_widget.update_tasks(all_tasks)
+            
+        finally:
+            self._updating = False
+
+    def refresh_ui_for_task(self, task: Task):
+        """Частичное обновление UI для конкретной задачи"""
+        if self._updating:
+            return
+            
+        # Для упрощения делаем полное обновление
+        # В будущем можно оптимизировать для обновления только нужных частей
+        self.refresh_ui()
 
     def setup_ui(self):
         """Создание пользовательского интерфейса"""
@@ -116,7 +292,7 @@ class TaskManager:
         self.layout_container = ttk.Frame(parent)
         self.layout_container.pack(fill='both', expand=True)
 
-        # Создание компонентов
+        # Создание компонентов с передачей event manager
         self.quadrants_widget = QuadrantsWidget(self.layout_container, self)
         self.task_list_widget = TaskListWidget(self.layout_container, self)
 
@@ -203,7 +379,6 @@ class TaskManager:
         """Создание новой задачи через диалог"""
         dialog = TaskEditDialog(self.root, self)
         if dialog.result:
-            self.refresh_all()
             messagebox.showinfo("Успех", "Задача создана!")
 
     def edit_current_task(self):
@@ -215,15 +390,12 @@ class TaskManager:
         dialog = TaskEditDialog(self.root, self, self.current_task)
         if dialog.result:
             self.current_task = dialog.result
-            self.refresh_all()
-            self.task_detail_panel.show_task(self.current_task)
             messagebox.showinfo("Успех", "Задача обновлена!")
 
     def quick_save_task(self):
         """Быстрое сохранение текущей задачи"""
         if self.current_task:
-            self.db.save_task(self.current_task)
-            self.refresh_all()
+            self.task_service.update_task(self.current_task)
             messagebox.showinfo("Успех", "Задача сохранена!")
 
     def delete_current_task(self):
@@ -233,36 +405,9 @@ class TaskManager:
             return
 
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.current_task.title}'?"):
-            self.db.delete_task(self.current_task.id)
-            self.current_task = None
-            self.task_detail_panel.show_no_task()
-            self.refresh_all()
+            self.task_service.delete_task(self.current_task.id)
             messagebox.showinfo("Успех", "Задача удалена!")
 
-    def refresh_task_list(self):
-        """Обновление списка задач"""
-        print(f"📋 Обновление списка задач для даты: {self.current_date}")
-
-        # Получение задач
-        date_str = self.current_date.isoformat()
-        tasks = self.db.get_tasks(date_str, include_backlog=False)
-
-        print(f"📊 Найдено задач: {len(tasks)}")
-        for task in tasks:
-            print(f"  - {task.title} (квадрант: {task.quadrant}, выполнена: {task.is_completed})")
-
-        # Группируем задачи
-        quadrant_tasks = {0: [], 1: [], 2: [], 3: [], 4: []}
-        
-        for task in tasks:
-            quadrant_tasks[task.quadrant].append(task)
-
-        # Обновляем список задач (передаем ВСЕ задачи для правильной группировки)
-        self.task_list_widget.update_tasks(tasks)
-
-        # Обновляем квадранты (только задачи в квадрантах 1-4)
-        self.quadrants_widget.update_quadrants(quadrant_tasks)
-        
     def select_task(self, task: Task):
         """Выбор задачи"""
         self.current_task = task
@@ -270,53 +415,26 @@ class TaskManager:
 
     def toggle_task_completion(self, task: Task, completed: bool):
         """Переключение статуса выполнения"""
-        task.is_completed = completed
-        self.db.save_task(task)
-
-        if self.current_task and self.current_task.id == task.id:
-            self.current_task.is_completed = completed
-            self.task_detail_panel.show_task(self.current_task)
-
-        # Обновляем только список задач
-        self.refresh_task_list()
+        self.task_service.toggle_task_completion(task, completed)
 
     def move_task_to_quadrant(self, task: Task, quadrant: int):
         """Перемещение задачи в квадрант"""
-        print(f"🎯 Перемещение задачи '{task.title}' в квадрант {quadrant}")
-
-        old_quadrant = task.quadrant
-        task.quadrant = quadrant
-
-        if not task.date_scheduled:
+        logger.info(f"Moving task '{task.title}' to quadrant {quadrant}")
+        
+        # Устанавливаем дату если её нет
+        if not task.date_scheduled and quadrant > 0:
             task.date_scheduled = self.current_date.isoformat()
-
-        # Увеличиваем важность при перемещении
-        if old_quadrant != quadrant and quadrant > 0:
-            task.move_count += 1
-            task.importance = min(10, task.importance + 1)
-            # Обновляем цвет в зависимости от важности
-            task.priority = min(10, max(1, task.importance))
-
-        self.db.save_task(task)
         
-        # Обновляем текущую задачу если это она
-        if self.current_task and self.current_task.id == task.id:
-            self.current_task = task
-            self.task_detail_panel.show_task(task)
-        
-        # Обновляем интерфейс
-        self.refresh_task_list()
+        self.task_service.move_task_to_quadrant(task, quadrant)
 
     def move_task_to_backlog(self, task: Task):
         """Перемещение задачи в бэклог"""
-        print(f"📤 Перемещение задачи в бэклог: {task.title}")
-
+        logger.info(f"Moving task to backlog: {task.title}")
+        
         task.date_scheduled = ""
         task.quadrant = 0
-
-        self.db.save_task(task)
-        # Обновляем интерфейс
-        self.refresh_task_list()
+        
+        self.task_service.update_task(task)
 
     # Управление днем
     def start_day(self):
@@ -330,6 +448,7 @@ class TaskManager:
             self.quadrants_widget.update_time_labels(start_hour, start_minute)
 
             self.day_btn.config(text="Завершить день")
+            self.events.emit_now(EventType.DAY_STARTED, self.day_start_time)
             messagebox.showinfo("День начат", f"День начат в {self.day_start_time.strftime('%H:%M')}")
 
     def end_day(self):
@@ -342,10 +461,10 @@ class TaskManager:
                 self.db.save_setting(f"day_end_{self.current_date.isoformat()}", end_time.isoformat())
 
                 self.current_date += timedelta(days=1)
-
                 self.day_btn.config(text="Начать день")
-                # Обновляем интерфейс
-                self.refresh_task_list()
+                
+                self.events.emit_now(EventType.DAY_ENDED, end_time)
+                self.events.emit_now(EventType.DATE_CHANGED, self.current_date)
 
                 messagebox.showinfo("День завершен", f"День завершен в {end_time.strftime('%H:%M')}")
 
@@ -368,9 +487,10 @@ class TaskManager:
     def go_to_date(self, target_date: date):
         """Переход к указанной дате"""
         self.current_date = target_date
-        self.refresh_task_list()
         self.update_datetime()
         self.task_detail_panel.show_no_task()
+        
+        self.events.emit_now(EventType.DATE_CHANGED, target_date)
 
         if target_date == date.today():
             msg = "Переход к сегодняшнему дню"
@@ -433,15 +553,9 @@ class TaskManager:
             self.task_types_cache = self.db.get_task_types()
         return self.task_types_cache
 
-    def refresh_all(self):
-        """Полное обновление интерфейса"""
-        self.refresh_task_list()
-        if hasattr(self, 'analytics_tree'):
-            self.update_analytics()
-
     def load_data(self):
         """Загрузка данных при запуске"""
-        self.refresh_task_list()
+        self.refresh_ui()
         self.update_analytics()
 
     def run(self):

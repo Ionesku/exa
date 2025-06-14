@@ -3,15 +3,27 @@
 Task Manager - Модули
 """
 
+# Модели данных
 from modules.task_models import Task, TaskType
+
+# База данных
 from modules.database import DatabaseManager
+
+# Система событий
+from modules.event_manager import EventManager, EventType, Event
+
+# Цвета
 from modules.colors import get_priority_color, get_completed_color, QUADRANT_COLORS, UI_COLORS
+
+# UI компоненты
 from modules.quadrants_widget import QuadrantsWidget
 from modules.task_list_widget import TaskListWidget
 from modules.task_detail_panel import TaskDetailPanel
 from modules.task_edit_dialog import TaskEditDialog
 from modules.task_type_dialog import TaskTypeDialog
 from modules.calendar_window import CalendarWindow
+
+# Утилиты
 from modules.utils import DateUtils, TaskUtils, truncate_text
 
 __all__ = [
@@ -20,6 +32,9 @@ __all__ = [
 
     # База данных
     'DatabaseManager',
+
+    # Система событий
+    'EventManager', 'EventType', 'Event',
 
     # Цвета
     'get_priority_color', 'get_completed_color', 'QUADRANT_COLORS', 'UI_COLORS',
