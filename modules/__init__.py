@@ -5,7 +5,7 @@ Task Manager - Модули
 
 from modules.task_models import Task, TaskType
 from modules.database import DatabaseManager
-from modules.colors import get_priority_color, QUADRANT_COLORS, UI_COLORS
+from modules.colors import get_priority_color, get_completed_color, QUADRANT_COLORS, UI_COLORS
 from modules.quadrants_widget import QuadrantsWidget
 from modules.task_list_widget import TaskListWidget
 from modules.task_detail_panel import TaskDetailPanel
@@ -22,7 +22,7 @@ __all__ = [
     'DatabaseManager',
 
     # Цвета
-    'get_priority_color', 'QUADRANT_COLORS', 'UI_COLORS',
+    'get_priority_color', 'get_completed_color', 'QUADRANT_COLORS', 'UI_COLORS',
 
     # UI компоненты
     'QuadrantsWidget', 'TaskListWidget', 'TaskDetailPanel',

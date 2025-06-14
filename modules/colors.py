@@ -1,24 +1,37 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Цвета и стили
+Task Manager - Цвета и стили (Material Design)
 """
 
 
 def get_priority_color(priority: int) -> str:
-    """Вычисление цвета для приоритета (градиент от зеленого к красному)"""
-    # Нормализация приоритета к диапазону 0-1
-    ratio = (priority - 1) / 9.0
+    """Вычисление цвета для приоритета (Material Design градиент)"""
+    # Material Design цветовая схема от зеленого к красному
+    colors = [
+        "#4CAF50",  # 1 - Material Green 500
+        "#66BB6A",  # 2 - Material Green 400
+        "#81C784",  # 3 - Material Green 300
+        "#A5D6A7",  # 4 - Material Green 200
+        "#FFF176",  # 5 - Material Yellow 300
+        "#FFD54F",  # 6 - Material Yellow 400
+        "#FFB74D",  # 7 - Material Orange 300
+        "#FF8A65",  # 8 - Material Deep Orange 300
+        "#EF5350",  # 9 - Material Red 400
+        "#F44336"   # 10 - Material Red 500
+    ]
+    
+    # Обеспечиваем, что приоритет в диапазоне 1-10
+    priority = max(1, min(10, priority))
+    return colors[priority - 1]
 
-    # Интерполяция между зеленым (0, 255, 0) и красным (255, 0, 0)
-    red = int(255 * ratio)
-    green = int(255 * (1 - ratio))
-    blue = 0
 
-    return f"#{red:02x}{green:02x}{blue:02x}"
+def get_completed_color() -> str:
+    """Цвет для выполненных задач"""
+    return "#BDBDBD"  # Material Grey 400
 
 
-def get_pastel_color(hue: int, saturation: float = 0.3, lightness: float = 0.8) -> str:
-    """Генерация пастельного цвета по оттенку"""
+def get_pastel_color(hue: int, saturation: float = 0.3, lightness: float = 0.9) -> str:
+    """Генерация пастельного цвета по оттенку (Material Design Light)"""
     import colorsys
 
     # Конвертируем HSL в RGB
@@ -28,24 +41,25 @@ def get_pastel_color(hue: int, saturation: float = 0.3, lightness: float = 0.8) 
     return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
 
-# Цвета квадрантов
+# Цвета квадрантов (Material Design пастельные)
 QUADRANT_COLORS = {
-    1: get_pastel_color(120, 0.25, 0.9),  # Светло-зеленый
-    2: get_pastel_color(210, 0.25, 0.9),  # Светло-голубой
-    3: get_pastel_color(30, 0.25, 0.9),   # Светло-оранжевый
-    4: get_pastel_color(270, 0.25, 0.9),  # Светло-фиолетовый
+    1: "#E8F5E9",  # Material Green 50
+    2: "#E3F2FD",  # Material Blue 50
+    3: "#FFF3E0",  # Material Orange 50
+    4: "#F3E5F5",  # Material Purple 50
 }
 
-# Системные цвета интерфейса
+# Системные цвета интерфейса (Material Design)
 UI_COLORS = {
-    'primary': '#2196F3',
-    'accent': '#FF5722',
-    'success': '#4CAF50',
-    'warning': '#FF9800',
-    'error': '#F44336',
-    'background': '#FFFFFF',
-    'text_primary': '#212121',
-    'text_secondary': '#757575',
-    'border': '#E0E0E0',
-    'inactive': '#F8F8F8',
+    'primary': '#1976D2',      # Material Blue 700
+    'accent': '#FF6F00',       # Material Amber 900
+    'success': '#388E3C',      # Material Green 700
+    'warning': '#F57C00',      # Material Orange 700
+    'error': '#D32F2F',        # Material Red 700
+    'background': '#FAFAFA',   # Material Grey 50
+    'text_primary': '#212121', # Material Grey 900
+    'text_secondary': '#757575', # Material Grey 600
+    'border': '#E0E0E0',       # Material Grey 300
+    'inactive': '#F5F5F5',     # Material Grey 100
+    'disabled': '#9E9E9E',     # Material Grey 500
 }

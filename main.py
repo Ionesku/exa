@@ -14,7 +14,7 @@ from modules import (
     Task, TaskType, DatabaseManager,
     QuadrantsWidget, TaskListWidget, TaskDetailPanel,
     TaskEditDialog, CalendarWindow,
-    get_priority_color, UI_COLORS
+    get_priority_color, get_completed_color, UI_COLORS
 )
 
 
@@ -116,6 +116,9 @@ class TaskManager:
         self.quadrants_widget = QuadrantsWidget(self.layout_container, self)
         self.task_list_widget = TaskListWidget(self.layout_container, self)
 
+        # Начальная компоновка
+        self.switch_to_horizontal_layout()
+
         # Привязка события изменения размера
         self.root.bind('<Configure>', self.on_window_resize)
 
@@ -212,10 +215,7 @@ class TaskManager:
             self.task_detail_panel.show_task(self.current_task)
             messagebox.showinfo("Успех", "Задача обновлена!")
 
-    def refresh_all(self):
-        """Обновление всего интерфейса"""
-        print("🔄 Обновление интерфейса...")
-        self.refresh_task_list()
+
 
     def quick_save_task(self):
         """Быстрое сохранение текущей задачи"""
@@ -241,10 +241,6 @@ class TaskManager:
         """Обновление списка задач"""
         print(f"📋 Обновление списка задач для даты: {self.current_date}")
 
-        # Очистка
-        self.task_list_widget.clear_tasks()
-        self.quadrants_widget.clear_quadrants()
-
         # Получение задач
         date_str = self.current_date.isoformat()
         tasks = self.db.get_tasks(date_str, include_backlog=False)
@@ -255,20 +251,13 @@ class TaskManager:
         quadrant_tasks = {0: [], 1: [], 2: [], 3: [], 4: []}
         
         for task in tasks:
-            if task.is_completed:
-                # Completed tasks отображаются только в списке
-                quadrant_tasks[0].append(task)
             quadrant_tasks[task.quadrant].append(task)
-            
 
-        # Добавляем в список (квадрант 0) - разделяем активные и выполненные
-        for task in quadrant_tasks[0]:
-            self.task_list_widget.add_task(task)
+        # Обновляем список задач
+        self.task_list_widget.update_tasks(quadrant_tasks[0])
 
-        # Добавляем в квадранты (1-4)
-        for quad_id in range(1, 5):
-            for task in quadrant_tasks[quad_id]:
-                self.quadrants_widget.add_task_to_quadrant(task, quad_id)
+        # Обновляем квадранты
+        self.quadrants_widget.update_quadrants(quadrant_tasks)
 
     def select_task(self, task: Task):
         """Выбор задачи"""
@@ -284,7 +273,8 @@ class TaskManager:
             self.current_task.is_completed = completed
             self.task_detail_panel.show_task(self.current_task)
 
-        self.refresh_all()
+        # Обновляем только список задач
+        self.refresh_task_list()
 
     def move_task_to_quadrant(self, task: Task, quadrant: int):
         """Перемещение задачи в квадрант"""
@@ -304,7 +294,9 @@ class TaskManager:
             task.priority = min(10, max(1, task.importance))
 
         self.db.save_task(task)
-        self.refresh_all()
+        
+        # Обновляем только список задач
+        self.refresh_task_list()
 
         if self.current_task and self.current_task.id == task.id:
             self.current_task = task
@@ -318,7 +310,8 @@ class TaskManager:
         task.quadrant = 0
 
         self.db.save_task(task)
-        self.refresh_all()
+        # Обновляем только список
+        self.refresh_task_list()
 
     # Управление днем
     def start_day(self):
@@ -340,13 +333,14 @@ class TaskManager:
             if messagebox.askyesno("Завершение дня", "Завершить текущий день?"):
                 self.day_started = False
 
-                end_time = datetime.now().time()
+                end_time = datetime.now()
                 self.db.save_setting(f"day_end_{self.current_date.isoformat()}", end_time.isoformat())
 
                 self.current_date += timedelta(days=1)
 
                 self.day_btn.config(text="Начать день")
-                self.refresh_all()
+                # Обновляем только список
+                self.refresh_task_list()
 
                 messagebox.showinfo("День завершен", f"День завершен в {end_time.strftime('%H:%M')}")
 
@@ -369,7 +363,7 @@ class TaskManager:
     def go_to_date(self, target_date: date):
         """Переход к указанной дате"""
         self.current_date = target_date
-        self.refresh_all()
+        self.refresh_task_list()
         self.update_datetime()
         self.task_detail_panel.show_no_task()
 
@@ -430,7 +424,7 @@ class TaskManager:
 
     def load_data(self):
         """Загрузка данных при запуске"""
-        self.refresh_all()
+        self.refresh_task_list()
         self.update_analytics()
 
     def run(self):

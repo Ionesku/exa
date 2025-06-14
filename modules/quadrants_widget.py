@@ -8,7 +8,7 @@ from tkinter import ttk, messagebox, simpledialog
 from typing import Dict, List
 from datetime import datetime, timedelta
 from .task_models import Task
-from .colors import get_priority_color, QUADRANT_COLORS
+from .colors import get_priority_color, get_completed_color, QUADRANT_COLORS
 
 
 class QuadrantsWidget:
@@ -139,6 +139,12 @@ class QuadrantsWidget:
         # Обновляем отображение
         self.refresh_quadrant(quadrant)
 
+    def update_quadrants(self, quadrant_tasks):
+        """Умное обновление квадрантов без полной перерисовки"""
+        for quad_id in range(1, 5):
+            self.quadrants[quad_id]['tasks'] = quadrant_tasks.get(quad_id, [])
+            self.refresh_quadrant(quad_id)
+
     def refresh_quadrant(self, quadrant: int):
         """Обновление отображения квадранта"""
         quad_data = self.quadrants[quadrant]
@@ -173,7 +179,12 @@ class QuadrantsWidget:
             col = i % cols
 
             # Фрейм задачи
-            task_frame = tk.Frame(table, bg=get_priority_color(task.priority),
+            if task.is_completed:
+                bg_color = get_completed_color()
+            else:
+                bg_color = get_priority_color(task.priority)
+                
+            task_frame = tk.Frame(table, bg=bg_color,
                                  relief='raised', bd=1)
             task_frame.grid(row=row, column=col, padx=2, pady=2, sticky='nsew')
 
@@ -182,20 +193,20 @@ class QuadrantsWidget:
             table.grid_columnconfigure(col, weight=1)
 
             # Контент задачи
-            content_frame = tk.Frame(task_frame, bg=get_priority_color(task.priority))
+            content_frame = tk.Frame(task_frame, bg=bg_color)
             content_frame.pack(fill='both', expand=True, padx=3, pady=3)
 
             # Чекбокс
             completed_var = tk.BooleanVar(value=task.is_completed)
             check = tk.Checkbutton(content_frame, variable=completed_var,
-                                  bg=get_priority_color(task.priority),
+                                  bg=bg_color,
                                   command=lambda t=task, v=completed_var: 
                                   self.task_manager.toggle_task_completion(t, v.get()))
             check.pack(anchor='nw')
 
             # Название
             title_label = tk.Label(content_frame, text=task.title[:20] + "..." if len(task.title) > 20 else task.title,
-                                  bg=get_priority_color(task.priority),
+                                  bg=bg_color,
                                   fg='white', font=('Arial', 9, 'bold'),
                                   wraplength=100, justify='center')
             title_label.pack(expand=True)
@@ -203,7 +214,7 @@ class QuadrantsWidget:
             # Длительность
             if task.has_duration:
                 duration_label = tk.Label(content_frame, text=f"{task.duration}м",
-                                        bg=get_priority_color(task.priority),
+                                        bg=bg_color,
                                         fg='white', font=('Arial', 8))
                 duration_label.pack()
 
@@ -244,16 +255,20 @@ class QuadrantsWidget:
         self.selected_task = task
         self.task_manager.select_task(task)
         
-        # Закрываем меню по правому клику
-        def close_menu(e):
-            self.context_menu.unpost()
-        
-        self.context_menu.bind("<Button-3>", close_menu)
+        # Закрываем меню по любому клику
+        self.task_manager.root.bind_all('<Button-1>', self.close_context_menu)
         
         try:
             self.context_menu.tk_popup(event.x_root, event.y_root)
         finally:
             self.context_menu.grab_release()
+    
+    def close_context_menu(self, event=None):
+        """Закрытие контекстного меню"""
+        try:
+            self.context_menu.unpost()
+        except:
+            pass
 
     def move_selected_to_quadrant(self, target_quadrant: int):
         """Перемещение выбранной задачи в другой квадрант"""
@@ -297,7 +312,7 @@ class QuadrantsWidget:
 
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.selected_task.title}'?"):
             self.task_manager.db.delete_task(self.selected_task.id)
-            self.task_manager.refresh_all()
+            self.task_manager.refresh_task_list()
 
     def edit_start_time(self):
         """Редактирование времени начала дня (только первый квадрант)"""

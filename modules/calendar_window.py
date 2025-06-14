@@ -10,7 +10,6 @@ from datetime import datetime, date
 from typing import List
 from .task_models import Task
 from .task_edit_dialog import TaskEditDialog
-from tkinter import font as tkFont 
 
 
 class CalendarWindow:
@@ -194,6 +193,7 @@ class CalendarWindow:
                     text=str(day),
                     command=lambda d=day_date: self.select_date(d),
                     width=8, height=3,
+                    font=('Arial', 10),
                     **style
                 )
                 # Смещаем на 1, так как строка 0 - заголовки

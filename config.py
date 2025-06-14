@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Конфигурация приложения
+Task Manager - Конфигурация приложения (упрощенная версия)
 """
 
 from pathlib import Path
@@ -23,9 +23,9 @@ UI_CONFIG = {
     'quadrant_grid_columns': 4,  # Максимум колонок в таблице квадранта
 
     # Список задач
-    'task_list_width': 250,
-    'task_block_height': 40,
-    'task_title_max_length': 20,
+    'task_list_width': 280,  # Увеличено для дополнительной информации
+    'task_block_height': 50,  # Увеличено для двух строк
+    'task_title_max_length': 30,
 
     # Диалоги
     'dialog_width': 500,

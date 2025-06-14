@@ -6,6 +6,7 @@ Task Manager - Панель деталей задачи
 import tkinter as tk
 from tkinter import ttk, messagebox
 from .task_models import Task
+from .colors import UI_COLORS
 
 
 class TaskDetailPanel:
@@ -39,8 +40,13 @@ class TaskDetailPanel:
 
         # Содержание
         ttk.Label(left_frame, text="Содержание:").grid(row=1, column=0, sticky='nw', pady=2)
-        self.content_text = tk.Text(left_frame, height=3, state='disabled')
-        self.content_text.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
+        content_frame = tk.Frame(left_frame, bg=UI_COLORS['inactive'], relief='sunken', bd=1)
+        content_frame.grid(row=1, column=1, sticky='ew', padx=(5, 0), pady=2)
+        
+        self.content_text = tk.Text(content_frame, height=3, bg=UI_COLORS['inactive'], 
+                                   fg=UI_COLORS['text_secondary'],
+                                   relief='flat', state='disabled')
+        self.content_text.pack(fill='both', expand=True, padx=2, pady=2)
 
         # Параметры
         params_frame = ttk.Frame(left_frame)
@@ -183,7 +189,7 @@ class TaskDetailPanel:
         self.task_manager.db.save_task(self.current_task)
 
         # Обновляем интерфейс
-        self.task_manager.refresh_all()
+        self.task_manager.refresh_task_list()
 
         self.exit_edit_mode()
         messagebox.showinfo("Успех", "Изменения сохранены!")

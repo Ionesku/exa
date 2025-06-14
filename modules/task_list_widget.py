@@ -6,7 +6,7 @@ Task Manager - Виджет списка задач
 import tkinter as tk
 from tkinter import ttk, messagebox
 from .task_models import Task
-from .colors import get_priority_color
+from .colors import get_priority_color, get_completed_color
 
 
 class TaskListWidget:
@@ -47,7 +47,7 @@ class TaskListWidget:
         self.main_frame.pack(side='right', fill='y')
 
         # Фиксированная ширина
-        self.main_frame.configure(width=250)
+        self.main_frame.configure(width=280)
         self.main_frame.pack_propagate(False)
 
         # Кнопка новой задачи
@@ -72,7 +72,7 @@ class TaskListWidget:
     def setup_task_tab(self, parent, tab_type):
         """Настройка вкладки с задачами"""
         # Прокручиваемый список
-        canvas = tk.Canvas(parent, bg='white', width=230)
+        canvas = tk.Canvas(parent, bg='white', width=260)
         scrollbar = ttk.Scrollbar(parent, orient='vertical', command=canvas.yview)
 
         scrollable_frame = ttk.Frame(canvas)
@@ -91,6 +91,9 @@ class TaskListWidget:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        # Закрытие контекстного меню по клику
+        canvas.bind('<Button-1>', self.close_context_menu)
+
         # Сохраняем ссылки
         if tab_type == "active":
             self.active_canvas = canvas
@@ -106,43 +109,111 @@ class TaskListWidget:
         for widget in self.completed_scrollable_frame.winfo_children():
             widget.destroy()
 
+    def update_tasks(self, tasks):
+        """Умное обновление списка задач без полной перерисовки"""
+        # Разделяем задачи на активные и выполненные
+        active_tasks = [t for t in tasks if not t.is_completed]
+        completed_tasks = [t for t in tasks if t.is_completed]
+        
+        # Обновляем активные задачи
+        self._update_tab_tasks(self.active_scrollable_frame, active_tasks)
+        
+        # Обновляем выполненные задачи
+        self._update_tab_tasks(self.completed_scrollable_frame, completed_tasks)
+    
+    def _update_tab_tasks(self, parent_frame, tasks):
+        """Обновление задач в конкретной вкладке"""
+        # Очищаем текущие виджеты
+        for widget in parent_frame.winfo_children():
+            widget.destroy()
+        
+        # Добавляем новые задачи
+        for task in tasks:
+            self._create_task_widget(parent_frame, task)
+    
     def add_task(self, task: Task):
-        """Добавление задачи в список"""
+        """Добавление одной задачи в список"""
         # Определяем родительский фрейм
         if task.is_completed:
             parent_frame = self.completed_scrollable_frame
         else:
             parent_frame = self.active_scrollable_frame
+        
+        self._create_task_widget(parent_frame, task)
+    
+    def _create_task_widget(self, parent_frame, task: Task):
+        """Создание виджета задачи"""
+        # Выбираем цвет для задачи
+        if task.is_completed:
+            bg_color = get_completed_color()
+        else:
+            bg_color = get_priority_color(task.priority)
 
         # Контейнер задачи
         task_frame = tk.Frame(parent_frame,
-                             bg=get_priority_color(task.priority),
-                             relief='solid', bd=1, height=40)
+                             bg=bg_color,
+                             relief='solid', bd=1)
         task_frame.pack(fill='x', pady=2)
-        task_frame.pack_propagate(False)
+
+        # Основная информация
+        main_info_frame = tk.Frame(task_frame, bg=bg_color)
+        main_info_frame.pack(fill='x', padx=5, pady=(3, 0))
 
         # Индикатор планирования
         if task.is_planned:
-            plan_label = tk.Label(task_frame, text="📅",
-                                 bg=get_priority_color(task.priority),
+            plan_label = tk.Label(main_info_frame, text="📅",
+                                 bg=bg_color,
                                  font=('Arial', 8))
             plan_label.pack(side='right', padx=2)
 
-        # Название
-        title = task.title if len(task.title) <= 20 else task.title[:17] + "..."
+        # Тип задачи
+        task_types = self.task_manager.db.get_task_types()
+        task_type = next((t for t in task_types if t.id == task.task_type_id), None)
+        type_name = task_type.name if task_type else "Без типа"
+
+        # Название с типом
+        title = f"{type_name} / {task.title}"
+        if len(title) > 30:
+            title = title[:27] + "..."
+        
         if task.is_completed:
             title = f"✓ {title}"
 
-        title_label = tk.Label(task_frame, text=title,
-                              bg=get_priority_color(task.priority),
-                              fg='white', font=('Arial', 10, 'bold'),
+        title_label = tk.Label(main_info_frame, text=title,
+                              bg=bg_color,
+                              fg='white', font=('Arial', 9, 'bold'),
                               anchor='w')
-        title_label.pack(fill='both', expand=True, padx=5, pady=5)
+        title_label.pack(fill='x')
+
+        # Дополнительная информация
+        info_frame = tk.Frame(task_frame, bg=bg_color)
+        info_frame.pack(fill='x', padx=5, pady=(0, 3))
+
+        info_parts = []
+        info_parts.append(f"В:{task.importance}")
+        info_parts.append(f"С:{task.priority}")
+        if task.has_duration:
+            info_parts.append(f"Д:{task.duration}м")
+        
+        info_text = " | ".join(info_parts)
+        
+        info_label = tk.Label(info_frame, text=info_text,
+                             bg=bg_color,
+                             fg='white', font=('Arial', 8),
+                             anchor='w')
+        info_label.pack(fill='x')
 
         # События
-        for widget in [task_frame, title_label]:
+        for widget in [task_frame, main_info_frame, title_label, info_frame, info_label]:
             widget.bind("<Button-1>", lambda e, t=task: self.select_task(t))
             widget.bind("<Button-3>", lambda e, t=task: self.show_context_menu(e, t))
+
+    def close_context_menu(self, event=None):
+        """Закрытие контекстного меню"""
+        try:
+            self.context_menu.unpost()
+        except:
+            pass
 
     def select_task(self, task: Task):
         """Выбор задачи"""
@@ -154,11 +225,8 @@ class TaskListWidget:
         self.selected_task = task
         self.task_manager.select_task(task)
         
-        # Закрываем меню по правому клику
-        def close_menu(e):
-            self.context_menu.unpost()
-        
-        self.context_menu.bind("<Button-3>", close_menu)
+        # Закрываем меню по любому клику
+        self.task_manager.root.bind_all('<Button-1>', self.close_context_menu)
         
         try:
             self.context_menu.tk_popup(event.x_root, event.y_root)
@@ -188,4 +256,4 @@ class TaskListWidget:
 
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.selected_task.title}'?"):
             self.task_manager.db.delete_task(self.selected_task.id)
-            self.task_manager.refresh_all()
+            self.task_manager.refresh_task_list()

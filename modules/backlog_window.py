@@ -141,7 +141,7 @@ class BacklogWindow:
         if self.task_manager:
             task.date_scheduled = self.task_manager.current_date.isoformat()
             self.db.save_task(task)
-            self.task_manager.refresh_all()
+            self.task_manager.refresh_task_list()
             self.window.destroy()
             messagebox.showinfo("Успех", f"Задача '{task.title}' перемещена в сегодняшние задачи")
 
