@@ -260,7 +260,7 @@ class TaskManager:
 
         # Обновляем квадранты (только задачи в квадрантах 1-4)
         self.quadrants_widget.update_quadrants(quadrant_tasks)
-        
+
     def select_task(self, task: Task):
         """Выбор задачи"""
         self.current_task = task
@@ -297,12 +297,13 @@ class TaskManager:
 
         self.db.save_task(task)
         
-        # Обновляем список задач
-        self.root.after(50, self.refresh_task_list)
-
+        # Обновляем текущую задачу если это она
         if self.current_task and self.current_task.id == task.id:
             self.current_task = task
             self.task_detail_panel.show_task(task)
+        
+        # Обновляем весь интерфейс
+        self.refresh_all()
 
     def move_task_to_backlog(self, task: Task):
         """Перемещение задачи в бэклог"""

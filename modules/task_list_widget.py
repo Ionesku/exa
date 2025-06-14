@@ -112,9 +112,9 @@ class TaskListWidget:
         task_types = self.task_manager.db.get_task_types()
         type_map = {t.id: t for t in task_types}
         
-        # Разделяем задачи на активные и выполненные
-        active_tasks = [t for t in tasks if not t.is_completed and t.quadrant == 0]
-        completed_tasks = [t for t in tasks if t.is_completed and t.quadrant == 0]
+        # Разделяем задачи на активные и выполненные (показываем ВСЕ задачи дня)
+        active_tasks = [t for t in tasks if not t.is_completed]
+        completed_tasks = [t for t in tasks if t.is_completed]
         
         # Группируем задачи по типам
         active_groups = self._group_tasks_by_type(active_tasks, type_map)
@@ -248,9 +248,20 @@ class TaskListWidget:
         main_info_frame = tk.Frame(task_frame, bg=bg_color)
         main_info_frame.pack(fill='x', padx=5, pady=(3, 0))
 
+        # Индикаторы справа
+        indicators_frame = tk.Frame(main_info_frame, bg=bg_color)
+        indicators_frame.pack(side='right')
+        
+        # Индикатор квадранта
+        if task.quadrant > 0:
+            quad_label = tk.Label(indicators_frame, text=f"Q{task.quadrant}",
+                                 bg=bg_color, fg='white',
+                                 font=('Arial', 8, 'bold'))
+            quad_label.pack(side='right', padx=2)
+        
         # Индикатор планирования
         if task.is_planned:
-            plan_label = tk.Label(main_info_frame, text="📅",
+            plan_label = tk.Label(indicators_frame, text="📅",
                                  bg=bg_color,
                                  font=('Arial', 8))
             plan_label.pack(side='right', padx=2)
@@ -340,4 +351,4 @@ class TaskListWidget:
 
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.selected_task.title}'?"):
             self.task_manager.db.delete_task(self.selected_task.id)
-            self.task_manager.refresh_task_list()
+            self.task_manager.refresh_all()
