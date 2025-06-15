@@ -1,21 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-Task Manager - Окно календаря
+Task Manager - Оптимизированное окно календаря с инкрементальными обновлениями
 """
 
 import tkinter as tk
 from tkinter import ttk
 import calendar
-from datetime import datetime, date
-from typing import List
+from datetime import datetime, date, timedelta
+from typing import List, Dict, Set, Optional
+import logging
+
 from .task_models import Task
 from .task_edit_dialog import TaskEditDialog
+from .incremental_updater import SmartUpdateMixin
+
+logger = logging.getLogger(__name__)
 
 
-class CalendarWindow:
-    """Окно календаря"""
+class CalendarWindow(SmartUpdateMixin):
+    """Оптимизированное окно календаря с инкрементальными обновлениями"""
 
     def __init__(self, parent, db_manager, task_manager=None):
+        super().__init__()
         self.parent = parent
         self.db = db_manager
         self.task_manager = task_manager
@@ -26,8 +32,15 @@ class CalendarWindow:
 
         self.current_date = date.today()
         self.selected_date = date.today()
-
+        
+        # Кеши
+        self.day_buttons = {}  # date -> button widget
+        self.day_tasks_cache = {}  # date -> list of tasks
+        self.month_tasks_cache = {}  # (year, month) -> {date: tasks}
+        self.button_states = {}  # date -> (text, bg_color, fg_color)
+        
         self.setup_ui()
+        self.initial_load()
 
     def setup_ui(self):
         """Создание интерфейса"""
@@ -45,10 +58,6 @@ class CalendarWindow:
         main_container.add(tasks_frame, weight=1)
 
         self.setup_tasks_panel(tasks_frame)
-
-        # Инициализация
-        self.update_calendar()
-        self.on_date_selected(date.today())
 
     def setup_calendar(self, parent):
         """Создание календаря"""
@@ -83,8 +92,6 @@ class CalendarWindow:
         # Настройка колонок
         for i in range(7):
             self.calendar_frame.grid_columnconfigure(i, weight=1)
-
-        self.day_buttons = {}
 
     def setup_tasks_panel(self, parent):
         """Создание панели задач"""
@@ -121,47 +128,70 @@ class CalendarWindow:
 
         ttk.Button(button_frame, text="Перейти к дню", command=self.go_to_selected_day).pack(side='left', padx=(0, 5))
         ttk.Button(button_frame, text="Новая задача", command=self.create_task_for_date).pack(side='left', padx=(0, 5))
-        ttk.Button(button_frame, text="Обновить", command=self.refresh_tasks).pack(side='left')
+        ttk.Button(button_frame, text="Обновить", command=self.refresh_current_month).pack(side='left')
 
         # События
         self.tasks_tree.bind('<Double-1>', self.on_task_double_click)
 
+    def initial_load(self):
+        """Начальная загрузка"""
+        self.update_month_header()
+        self.load_month_tasks(self.current_date.year, self.current_date.month)
+        self.create_month_buttons()
+        self.on_date_selected(date.today())
+
     def prev_month(self):
         """Предыдущий месяц"""
         if self.current_date.month == 1:
-            self.current_date = self.current_date.replace(year=self.current_date.year - 1, month=12)
+            new_date = self.current_date.replace(year=self.current_date.year - 1, month=12)
         else:
-            self.current_date = self.current_date.replace(month=self.current_date.month - 1)
-        self.update_calendar()
+            new_date = self.current_date.replace(month=self.current_date.month - 1)
+        
+        self.change_month(new_date)
 
     def next_month(self):
         """Следующий месяц"""
         if self.current_date.month == 12:
-            self.current_date = self.current_date.replace(year=self.current_date.year + 1, month=1)
+            new_date = self.current_date.replace(year=self.current_date.year + 1, month=1)
         else:
-            self.current_date = self.current_date.replace(month=self.current_date.month + 1)
-        self.update_calendar()
+            new_date = self.current_date.replace(month=self.current_date.month + 1)
+        
+        self.change_month(new_date)
 
     def prev_year(self):
         """Предыдущий год"""
-        self.current_date = self.current_date.replace(year=self.current_date.year - 1)
-        self.update_calendar()
+        new_date = self.current_date.replace(year=self.current_date.year - 1)
+        self.change_month(new_date)
 
     def next_year(self):
         """Следующий год"""
-        self.current_date = self.current_date.replace(year=self.current_date.year + 1)
-        self.update_calendar()
+        new_date = self.current_date.replace(year=self.current_date.year + 1)
+        self.change_month(new_date)
 
     def go_to_today(self):
         """Перейти к сегодня"""
-        self.current_date = date.today()
-        self.selected_date = date.today()
-        self.update_calendar()
-        self.on_date_selected(self.selected_date)
+        today = date.today()
+        if self.current_date.year != today.year or self.current_date.month != today.month:
+            self.change_month(today)
+        self.select_date(today)
 
-    def update_calendar(self):
-        """Обновление календаря"""
-        # Обновление заголовка
+    def change_month(self, new_date: date):
+        """Смена месяца с оптимизацией"""
+        old_year, old_month = self.current_date.year, self.current_date.month
+        new_year, new_month = new_date.year, new_date.month
+        
+        self.current_date = new_date
+        self.update_month_header()
+        
+        # Загружаем задачи для нового месяца если их нет в кеше
+        if (new_year, new_month) not in self.month_tasks_cache:
+            self.load_month_tasks(new_year, new_month)
+        
+        # Инкрементальное обновление кнопок
+        self.update_month_buttons_incremental()
+
+    def update_month_header(self):
+        """Обновление заголовка месяца"""
         month_names = [
             'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
             'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
@@ -169,48 +199,181 @@ class CalendarWindow:
         month_name = month_names[self.current_date.month - 1]
         self.month_year_label.config(text=f"{month_name} {self.current_date.year}")
 
-        # Очистка старых кнопок
-        for button in self.day_buttons.values():
-            button.destroy()
-        self.day_buttons.clear()
+    def load_month_tasks(self, year: int, month: int):
+        """Загрузка всех задач месяца одним запросом"""
+        logger.debug(f"Loading tasks for {year}-{month}")
+        
+        # Определяем диапазон дат месяца
+        first_day = date(year, month, 1)
+        if month == 12:
+            last_day = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            last_day = date(year, month + 1, 1) - timedelta(days=1)
+        
+        # Получаем все задачи
+        all_tasks = self.db.get_tasks()
+        
+        # Фильтруем и группируем по датам
+        month_tasks = {}
+        for task in all_tasks:
+            if task.date_scheduled:
+                try:
+                    task_date = datetime.strptime(task.date_scheduled, '%Y-%m-%d').date()
+                    if first_day <= task_date <= last_day:
+                        if task_date not in month_tasks:
+                            month_tasks[task_date] = []
+                        month_tasks[task_date].append(task)
+                except:
+                    pass
+        
+        # Сохраняем в кеш
+        self.month_tasks_cache[(year, month)] = month_tasks
+        
+        # Обновляем кеш отдельных дней
+        for day_date, tasks in month_tasks.items():
+            self.day_tasks_cache[day_date] = tasks
 
-        # Получение календаря месяца
+    def create_month_buttons(self):
+        """Создание всех кнопок месяца"""
         cal = calendar.monthcalendar(self.current_date.year, self.current_date.month)
-
-        # Создание кнопок дней для всех недель
+        
+        # Создаем кнопки для всех дней
         for week_num, week in enumerate(cal):
             for day_num, day in enumerate(week):
                 if day == 0:
                     continue
-
+                
                 day_date = date(self.current_date.year, self.current_date.month, day)
-
-                # Стиль дня
-                style = self.get_day_style(day_date)
-
-                day_btn = tk.Button(
-                    self.calendar_frame,
-                    text=str(day),
-                    command=lambda d=day_date: self.select_date(d),
-                    width=8, height=3,
-                    **style
-                )
-                # Смещаем на 1, так как строка 0 - заголовки
-                day_btn.grid(row=week_num + 1, column=day_num, sticky='nsew', padx=1, pady=1)
-
-                # Добавляем информацию о задачах
-                tasks = self.get_tasks_for_date(day_date)
-                if tasks:
-                    task_count = len(tasks)
-                    completed_count = sum(1 for t in tasks if t.is_completed)
-                    info_text = f"{day}\n({completed_count}/{task_count})"
-                    day_btn.config(text=info_text, font=('Arial', 8))
-
-                self.day_buttons[day_date] = day_btn
-
+                
+                # Создаем кнопку если её еще нет
+                if day_date not in self.day_buttons:
+                    btn = tk.Button(
+                        self.calendar_frame,
+                        width=8, height=3,
+                        command=lambda d=day_date: self.select_date(d)
+                    )
+                    btn.grid(row=week_num + 1, column=day_num, sticky='nsew', padx=1, pady=1)
+                    self.day_buttons[day_date] = btn
+                
+                # Обновляем кнопку
+                self.update_day_button(day_date)
+        
         # Настройка строк
         for i in range(len(cal) + 1):
             self.calendar_frame.grid_rowconfigure(i, weight=1)
+
+    def update_month_buttons_incremental(self):
+        """Инкрементальное обновление кнопок при смене месяца"""
+        cal = calendar.monthcalendar(self.current_date.year, self.current_date.month)
+        
+        # Собираем все даты текущего месяца
+        current_month_dates = set()
+        for week in cal:
+            for day in week:
+                if day > 0:
+                    current_month_dates.add(date(self.current_date.year, self.current_date.month, day))
+        
+        # Скрываем кнопки других месяцев
+        for day_date, btn in self.day_buttons.items():
+            if day_date not in current_month_dates:
+                btn.grid_remove()
+        
+        # Обновляем/показываем кнопки текущего месяца
+        for week_num, week in enumerate(cal):
+            for day_num, day in enumerate(week):
+                if day == 0:
+                    # Пустая ячейка - создаем невидимый Frame для правильной сетки
+                    placeholder = tk.Frame(self.calendar_frame)
+                    placeholder.grid(row=week_num + 1, column=day_num)
+                    continue
+                
+                day_date = date(self.current_date.year, self.current_date.month, day)
+                
+                if day_date in self.day_buttons:
+                    # Показываем существующую кнопку
+                    btn = self.day_buttons[day_date]
+                    btn.grid(row=week_num + 1, column=day_num, sticky='nsew', padx=1, pady=1)
+                else:
+                    # Создаем новую кнопку
+                    btn = tk.Button(
+                        self.calendar_frame,
+                        width=8, height=3,
+                        command=lambda d=day_date: self.select_date(d)
+                    )
+                    btn.grid(row=week_num + 1, column=day_num, sticky='nsew', padx=1, pady=1)
+                    self.day_buttons[day_date] = btn
+                
+                # Обновляем только если изменилось состояние
+                self.update_day_button_if_changed(day_date)
+
+    def update_day_button(self, day_date: date):
+        """Обновление одной кнопки дня"""
+        if day_date not in self.day_buttons:
+            return
+        
+        btn = self.day_buttons[day_date]
+        
+        # Получаем стиль
+        style = self.get_day_style(day_date)
+        
+        # Получаем задачи из кеша
+        tasks = self.get_cached_tasks_for_date(day_date)
+        
+        # Формируем текст
+        if tasks:
+            task_count = len(tasks)
+            completed_count = sum(1 for t in tasks if t.is_completed)
+            text = f"{day_date.day}\n({completed_count}/{task_count})"
+            font = ('Arial', 8)
+        else:
+            text = str(day_date.day)
+            font = style.get('font', ('Arial', 10))
+        
+        # Применяем стиль
+        btn.config(text=text, **style)
+        
+        # Сохраняем состояние
+        self.button_states[day_date] = (text, style.get('bg'), style.get('fg'))
+
+    def update_day_button_if_changed(self, day_date: date):
+        """Обновление кнопки только если изменилось состояние"""
+        if day_date not in self.day_buttons:
+            return
+        
+        # Получаем новое состояние
+        style = self.get_day_style(day_date)
+        tasks = self.get_cached_tasks_for_date(day_date)
+        
+        if tasks:
+            task_count = len(tasks)
+            completed_count = sum(1 for t in tasks if t.is_completed)
+            new_text = f"{day_date.day}\n({completed_count}/{task_count})"
+        else:
+            new_text = str(day_date.day)
+        
+        new_bg = style.get('bg')
+        new_fg = style.get('fg')
+        
+        # Проверяем изменения
+        old_state = self.button_states.get(day_date, (None, None, None))
+        if (new_text, new_bg, new_fg) != old_state:
+            self.update_day_button(day_date)
+
+    def get_cached_tasks_for_date(self, target_date: date) -> List[Task]:
+        """Получение задач из кеша"""
+        # Сначала проверяем кеш дня
+        if target_date in self.day_tasks_cache:
+            return self.day_tasks_cache[target_date]
+        
+        # Затем кеш месяца
+        month_key = (target_date.year, target_date.month)
+        if month_key in self.month_tasks_cache:
+            tasks = self.month_tasks_cache[month_key].get(target_date, [])
+            self.day_tasks_cache[target_date] = tasks
+            return tasks
+        
+        # Если нет в кеше - пустой список (не делаем запрос к БД)
+        return []
 
     def get_day_style(self, day_date: date) -> dict:
         """Получение стиля для дня"""
@@ -233,29 +396,21 @@ class CalendarWindow:
         return style
 
     def select_date(self, selected_date: date):
-        """Выбор даты"""
+        """Выбор даты с оптимизацией"""
+        if selected_date == self.selected_date:
+            return  # Не обновляем если дата не изменилась
+        
         old_selected = self.selected_date
         self.selected_date = selected_date
-
-        # Обновляем стили кнопок
+        
+        # Обновляем только две кнопки - старую и новую
         if old_selected in self.day_buttons:
-            old_style = self.get_day_style(old_selected)
-            self.day_buttons[old_selected].config(**old_style)
-
+            self.update_day_button_if_changed(old_selected)
+        
         if selected_date in self.day_buttons:
-            new_style = self.get_day_style(selected_date)
-            self.day_buttons[selected_date].config(**new_style)
-
+            self.update_day_button_if_changed(selected_date)
+        
         self.on_date_selected(selected_date)
-
-    def get_tasks_for_date(self, target_date: date) -> List[Task]:
-        """Получение задач для даты"""
-        try:
-            date_str = target_date.isoformat()
-            tasks = self.db.get_tasks(date_str, include_backlog=False)
-            return tasks
-        except:
-            return []
 
     def on_date_selected(self, selected_date: date):
         """Обработка выбора даты"""
@@ -269,16 +424,16 @@ class CalendarWindow:
         formatted_date = f"{selected_date.day} {month} {selected_date.year}"
 
         self.selected_date_label.config(text=f"{weekday}, {formatted_date}")
-        self.refresh_tasks()
+        self.refresh_tasks_list()
 
-    def refresh_tasks(self):
-        """Обновление списка задач"""
+    def refresh_tasks_list(self):
+        """Обновление списка задач для выбранной даты"""
         # Очистка
         for item in self.tasks_tree.get_children():
             self.tasks_tree.delete(item)
 
-        # Загрузка задач
-        tasks = self.get_tasks_for_date(self.selected_date)
+        # Получаем задачи из кеша
+        tasks = self.get_cached_tasks_for_date(self.selected_date)
 
         for task in tasks:
             status = "Выполнено" if task.is_completed else "В работе"
@@ -295,6 +450,27 @@ class CalendarWindow:
             if task.is_completed:
                 self.tasks_tree.set(item, 'title', f"✓ {title}")
 
+    def refresh_current_month(self):
+        """Обновление текущего месяца"""
+        # Очищаем кеш месяца
+        month_key = (self.current_date.year, self.current_date.month)
+        if month_key in self.month_tasks_cache:
+            del self.month_tasks_cache[month_key]
+        
+        # Перезагружаем задачи
+        self.load_month_tasks(self.current_date.year, self.current_date.month)
+        
+        # Обновляем только видимые кнопки
+        cal = calendar.monthcalendar(self.current_date.year, self.current_date.month)
+        for week in cal:
+            for day in week:
+                if day > 0:
+                    day_date = date(self.current_date.year, self.current_date.month, day)
+                    self.update_day_button_if_changed(day_date)
+        
+        # Обновляем список задач для текущей даты
+        self.refresh_tasks_list()
+
     def go_to_selected_day(self):
         """Переход к выбранному дню"""
         if self.task_manager:
@@ -310,8 +486,29 @@ class CalendarWindow:
 
             dialog = TaskEditDialog(self.window, self.task_manager, new_task)
             if dialog.result:
-                self.refresh_tasks()
-                self.update_calendar()
+                # Обновляем только нужный день
+                self.queue_update(self._refresh_single_day, self.selected_date)
+
+    def _refresh_single_day(self, day_date: date):
+        """Обновление одного дня после изменения"""
+        # Удаляем из кеша
+        if day_date in self.day_tasks_cache:
+            del self.day_tasks_cache[day_date]
+        
+        # Получаем новые задачи
+        try:
+            date_str = day_date.isoformat()
+            tasks = self.db.get_tasks(date_str, include_backlog=False)
+            self.day_tasks_cache[day_date] = tasks
+            
+            # Обновляем кнопку
+            self.update_day_button_if_changed(day_date)
+            
+            # Если это выбранная дата - обновляем список
+            if day_date == self.selected_date:
+                self.refresh_tasks_list()
+        except Exception as e:
+            logger.error(f"Error refreshing day {day_date}: {e}")
 
     def on_task_double_click(self, event):
         """Двойной клик по задаче"""
@@ -328,7 +525,7 @@ class CalendarWindow:
         clean_title = task_title.replace("📅 ", "").replace("✓ ", "")
 
         # Находим задачу
-        tasks = self.get_tasks_for_date(self.selected_date)
+        tasks = self.get_cached_tasks_for_date(self.selected_date)
         for task in tasks:
             if task.title == clean_title:
                 if self.task_manager:
