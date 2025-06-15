@@ -151,7 +151,7 @@ class TaskDetailPanel:
 
         # Меняем кнопки
         self.edit_btn.config(text="Сохранить", state='normal')
-        self.save_btn.config(state='normal')
+        # self.save_btn.config(state='normal')
         self.cancel_btn.config(state='normal')
 
     def exit_edit_mode(self):

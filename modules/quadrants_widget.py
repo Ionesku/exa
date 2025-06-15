@@ -33,26 +33,55 @@ class QuadrantsWidget(SmartUpdateMixin):
         self._task_widgets_cache = {}  # task_id -> widget
         self._current_tasks = {}  # quadrant -> set of task_ids
         
+        # Для контекстного меню
+        self.context_menu = None
+        self.menu_visible = False
+        
         self.setup_quadrants()
-        self.setup_context_menu()
 
-    def setup_context_menu(self):
+    def setup_context_menu(self, current_quadrant: int = None):
         """Создание контекстного меню для задач"""
+        if self.context_menu:
+            self.context_menu.destroy()
+            
         self.context_menu = tk.Menu(self.task_manager.root, tearoff=0)
         
-        self.context_menu.add_command(label="В первый квадрант", 
-                                     command=lambda: self.move_selected_to_quadrant(1))
-        self.context_menu.add_command(label="Во второй квадрант", 
-                                     command=lambda: self.move_selected_to_quadrant(2))
-        self.context_menu.add_command(label="В третий квадрант", 
-                                     command=lambda: self.move_selected_to_quadrant(3))
-        self.context_menu.add_command(label="В четвертый квадрант", 
-                                     command=lambda: self.move_selected_to_quadrant(4))
+        # Добавляем пункты квадрантов, исключая текущий
+        for i in range(1, 5):
+            if i != current_quadrant:
+                self.context_menu.add_command(
+                    label=f"В {i}-й квадрант", 
+                    command=lambda q=i: self.move_selected_to_quadrant(q)
+                )
+        
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="В список задач", 
-                                     command=lambda: self.move_selected_to_quadrant(0))
-        self.context_menu.add_command(label="В бэклог", 
-                                     command=self.move_selected_to_backlog)
+        
+        # Пункт "В список задач" только если задача не в списке
+        if current_quadrant != 0:
+            self.context_menu.add_command(
+                label="В список задач", 
+                command=lambda: self.move_selected_to_quadrant(0)
+            )
+        
+        self.context_menu.add_command(
+            label="В бэклог", 
+            command=self.move_selected_to_backlog
+        )
+        
+        self.context_menu.add_separator()
+        
+        # Добавляем пункт "Выполнено"
+        if self.selected_task:
+            if self.selected_task.is_completed:
+                self.context_menu.add_command(
+                    label="Отменить выполнение",
+                    command=lambda: self.toggle_task_completion(False)
+                )
+            else:
+                self.context_menu.add_command(
+                    label="✓ Выполнено",
+                    command=lambda: self.toggle_task_completion(True)
+                )
         
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Редактировать", command=self.edit_selected_task)
@@ -253,6 +282,8 @@ class QuadrantsWidget(SmartUpdateMixin):
                 for subchild in child.winfo_children():
                     if isinstance(subchild, tk.Label) and hasattr(subchild, '_is_title'):
                         title_text = task.title[:20] + "..." if len(task.title) > 20 else task.title
+                        if task.is_completed:
+                            title_text = f"✓ {title_text}"
                         subchild.config(text=title_text)
                     elif isinstance(subchild, tk.Label) and hasattr(subchild, '_is_duration'):
                         if task.has_duration:
@@ -330,7 +361,7 @@ class QuadrantsWidget(SmartUpdateMixin):
         )
 
     def _create_task_widget(self, parent, task: Task, quadrant: int) -> tk.Frame:
-        """Создание виджета для одной задачи"""
+        """Создание виджета для одной задачи (без чекбокса)"""
         bg_color = get_completed_color() if task.is_completed else get_priority_color(task.priority)
         
         task_frame = tk.Frame(parent, bg=bg_color, relief='raised', bd=1)
@@ -338,16 +369,10 @@ class QuadrantsWidget(SmartUpdateMixin):
         content_frame = tk.Frame(task_frame, bg=bg_color)
         content_frame.pack(fill='both', expand=True, padx=3, pady=3)
 
-        completed_var = tk.BooleanVar(value=task.is_completed)
-        check = tk.Checkbutton(
-            content_frame, 
-            variable=completed_var,
-            bg=bg_color,
-            command=lambda: self.task_manager.toggle_task_completion(task, completed_var.get())
-        )
-        check.pack(anchor='nw')
-
         title_text = task.title[:20] + "..." if len(task.title) > 20 else task.title
+        if task.is_completed:
+            title_text = f"✓ {title_text}"
+            
         title_label = tk.Label(
             content_frame, 
             text=title_text,
@@ -358,7 +383,7 @@ class QuadrantsWidget(SmartUpdateMixin):
             justify='center'
         )
         title_label._is_title = True  # Маркер для идентификации
-        title_label.pack(expand=True)
+        title_label.pack(expand=True, pady=(5, 2))
 
         # Длительность
         duration_label = tk.Label(
@@ -378,11 +403,64 @@ class QuadrantsWidget(SmartUpdateMixin):
             widget.bind("<Button-1>", lambda e, t=task: self._on_task_click(e, t))
             widget.bind("<B1-Motion>", lambda e, t=task, w=task_frame: self._on_task_drag(e, t, w))
             widget.bind("<ButtonRelease-1>", lambda e: self._on_task_release(e))
-            widget.bind("<Button-3>", lambda e, t=task: self._show_context_menu(e, t))
+            widget.bind("<Button-3>", lambda e, t=task, q=quadrant: self._show_context_menu(e, t, q))
 
         return task_frame
 
-    # Остальные методы остаются без изменений
+    def _global_right_click_handler(self, event):
+        """Глобальный обработчик правого клика для закрытия меню"""
+        if self.menu_visible:
+            # Проверяем, что клик был не на самом меню
+            try:
+                widget_under_mouse = event.widget.winfo_containing(event.x_root, event.y_root)
+                if widget_under_mouse != self.context_menu:
+                    self.hide_context_menu()
+                    return "break"
+            except:
+                self.hide_context_menu()
+
+    def _global_left_click_handler(self, event):
+        """Глобальный обработчик левого клика для закрытия меню"""
+        if self.menu_visible:
+            # Проверяем, что клик был не на самом меню
+            try:
+                # Получаем виджет под курсором
+                widget = event.widget
+                # Проверяем, не является ли это меню или его дочерним элементом
+                menu_clicked = False
+                try:
+                    # Проверяем, если виджет - это само меню
+                    if str(widget) == str(self.context_menu):
+                        menu_clicked = True
+                    # Проверяем родителей виджета
+                    parent = widget
+                    while parent:
+                        if str(parent) == str(self.context_menu):
+                            menu_clicked = True
+                            break
+                        try:
+                            parent = parent.master
+                        except:
+                            break
+                except:
+                    pass
+                
+                if not menu_clicked:
+                    self.hide_context_menu()
+            except:
+                self.hide_context_menu()
+
+    def hide_context_menu(self):
+        """Скрыть контекстное меню"""
+        if self.context_menu and self.menu_visible:
+            self.context_menu.unpost()
+            self.menu_visible = False
+            # Убираем обработчик клика
+            try:
+                self.task_manager.root.unbind("<Button-1>")
+            except:
+                pass
+
     def _on_task_click(self, event, task: Task):
         """Обработка клика по задаче"""
         self.select_task(task)
@@ -450,15 +528,58 @@ class QuadrantsWidget(SmartUpdateMixin):
         self.selected_task = task
         self.task_manager.select_task(task)
 
-    def _show_context_menu(self, event, task: Task):
+    def _show_context_menu(self, event, task: Task, current_quadrant: int):
         """Показать контекстное меню"""
         self.selected_task = task
         self.task_manager.select_task(task)
         
+        # Создаем меню с учетом текущего квадранта
+        self.setup_context_menu(current_quadrant)
+        
         try:
+            # Показываем меню
             self.context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.context_menu.grab_release()
+            self.menu_visible = True
+            
+            # Ждем немного, чтобы меню появилось
+            self.context_menu.update_idletasks()
+            
+            # Захватываем все события мыши для закрытия меню при клике вне его
+            def close_on_click(e):
+                # Получаем координаты меню
+                try:
+                    menu_x = self.context_menu.winfo_rootx()
+                    menu_y = self.context_menu.winfo_rooty()
+                    menu_width = self.context_menu.winfo_width()
+                    menu_height = self.context_menu.winfo_height()
+                    
+                    # Проверяем, был ли клик вне меню
+                    if not (menu_x <= e.x_root <= menu_x + menu_width and
+                            menu_y <= e.y_root <= menu_y + menu_height):
+                        self.hide_context_menu()
+                except:
+                    self.hide_context_menu()
+            
+            # Привязываем обработчик к окну
+            self.task_manager.root.bind("<Button-1>", close_on_click, add="+")
+            
+        except Exception as e:
+            logger.error(f"Error showing context menu: {e}")
+            self.menu_visible = False
+        
+        # Предотвращаем распространение события
+        return "break"
+    
+    def _on_menu_leave(self, event):
+        """Обработчик для отслеживания выхода курсора из меню"""
+        # Даем небольшую задержку, чтобы не закрывать меню слишком быстро
+        self.context_menu.after(100, self._check_menu_focus)
+
+    def toggle_task_completion(self, completed: bool):
+        """Переключение статуса выполнения задачи"""
+        if self.selected_task:
+            self.task_manager.toggle_task_completion(self.selected_task, completed)
+            self.hide_context_menu()
 
     def move_selected_to_quadrant(self, target_quadrant: int):
         """Перемещение выбранной задачи в другой квадрант"""
@@ -467,6 +588,7 @@ class QuadrantsWidget(SmartUpdateMixin):
 
         logger.info(f"Moving selected task to quadrant {target_quadrant}")
         self.task_manager.move_task_to_quadrant(self.selected_task, target_quadrant)
+        self.hide_context_menu()
 
     def move_selected_to_backlog(self):
         """Перемещение выбранной задачи в бэклог"""
@@ -475,12 +597,14 @@ class QuadrantsWidget(SmartUpdateMixin):
 
         logger.info("Moving selected task to backlog")
         self.task_manager.move_task_to_backlog(self.selected_task)
+        self.hide_context_menu()
 
     def edit_selected_task(self):
         """Редактирование выбранной задачи"""
         if self.selected_task:
             self.task_manager.current_task = self.selected_task
             self.task_manager.edit_current_task()
+            self.hide_context_menu()
 
     def delete_selected_task(self):
         """Удаление выбранной задачи"""
@@ -489,6 +613,7 @@ class QuadrantsWidget(SmartUpdateMixin):
 
         if messagebox.askyesno("Подтверждение", f"Удалить задачу '{self.selected_task.title}'?"):
             self.task_manager.task_service.delete_task(self.selected_task.id)
+            self.hide_context_menu()
 
     def edit_start_time(self):
         """Редактирование времени начала дня"""
