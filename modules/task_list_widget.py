@@ -484,15 +484,54 @@ class TaskListWidget(SmartUpdateMixin):
         self.selected_task = task
         self.task_manager.select_task(task)
 
-    def _show_context_menu(self, event, task: Task):
+    def _show_context_menu(self, event, task: Task,):
         """Показать контекстное меню"""
         self.selected_task = task
         self.task_manager.select_task(task)
         
         try:
+            # Показываем меню
             self.context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.context_menu.grab_release()
+            self.menu_visible = True
+            
+            # Ждем немного, чтобы меню появилось
+            self.context_menu.update_idletasks()
+            
+            # Захватываем все события мыши для закрытия меню при клике вне его
+            def close_on_click(e):
+                # Получаем координаты меню
+                try:
+                    menu_x = self.context_menu.winfo_rootx()
+                    menu_y = self.context_menu.winfo_rooty()
+                    menu_width = self.context_menu.winfo_width()
+                    menu_height = self.context_menu.winfo_height()
+                    
+                    # Проверяем, был ли клик вне меню
+                    if not (menu_x <= e.x_root <= menu_x + menu_width and
+                            menu_y <= e.y_root <= menu_y + menu_height):
+                        self.hide_context_menu()
+                except:
+                    self.hide_context_menu()
+            
+            # Привязываем обработчик к окну
+            self.task_manager.root.bind("<Button-1>", close_on_click, add="+")
+            
+        except Exception as e:
+            logger.error(f"Error showing context menu: {e}")
+            self.menu_visible = False
+        
+        # Предотвращаем распространение события
+        return "break"
+
+    # def _show_context_menu(self, event, task: Task):
+    #     """Показать контекстное меню"""
+    #     self.selected_task = task
+    #     self.task_manager.select_task(task)
+        
+    #     try:
+    #         self.context_menu.tk_popup(event.x_root, event.y_root)
+    #     finally:
+    #         self.context_menu.grab_release()
 
     def move_selected_to_quadrant(self, quadrant: int):
         """Перемещение выбранной задачи в квадрант"""
